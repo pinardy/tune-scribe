@@ -567,6 +567,11 @@ progress::-moz-progress-bar {
   color: var(--ink-soft);
 }
 
+.field-note .link {
+  font-size: inherit;
+  color: var(--ink);
+}
+
 .segmented {
   display: flex;
   border: 1px solid var(--rule);

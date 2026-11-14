@@ -4,6 +4,7 @@
 import type { Key } from '../notation/theory';
 import { applyEdits, type NoteEdits } from './edits';
 import { estimateKey } from './key';
+import { suggestMeter, type MeterSuggestion } from './meter';
 import { quantize } from './quantize';
 import type { Score } from './score';
 import { METERS, buildScore, chooseClef } from './score';
@@ -21,6 +22,8 @@ export interface Arrangement {
     /** 0…1: how steady the pulse was; low values mean the tempo is a guess */
     tempoConfidence: number;
     key: Key;
+    /** a time signature and starting beat that fit the playing clearly better than the ones in force */
+    meter: MeterSuggestion | null;
   };
 }
 
@@ -65,6 +68,11 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   return {
     score: { ...buildScore(quantised, key, meter, clef, bpm), swing: feel === 'swing' },
     stepUnits,
-    detected: { bpm: tempo.bpm, tempoConfidence: tempo.confidence, key: detectedKey },
+    detected: {
+      bpm: tempo.bpm,
+      tempoConfidence: tempo.confidence,
+      key: detectedKey,
+      meter: suggestMeter(placed, settings),
+    },
   };
 }

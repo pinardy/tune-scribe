@@ -9,6 +9,7 @@ import { buildPdf } from '../export/pdf';
 import { midiToHz, spelledName } from '../notation/theory';
 import { withEdit } from './edits';
 import { arrange } from './index';
+import { suggestMeter } from './meter';
 import { estimateKey, spellInKey } from './key';
 import { quantize } from './quantize';
 import { METERS, buildScore, performance, splitSpan } from './score';
@@ -390,6 +391,46 @@ describe('swing and triplets', () => {
     const { notes } = segmentNotes(trackPitch(pcm, 22050));
     const { score } = arrange(notes, { ...DEFAULT_SETTINGS, feel: 'triplets' });
     expect(performance(score).map((n) => n.lengthUnits)).toEqual(DEMO_MELODY.map(([, units]) => units));
+  });
+});
+
+describe('time signature suggestion', () => {
+  /** quantised notes from lengths in units, one after another from `start` */
+  const line = (lengths: number[], start = 0) => {
+    let at = start;
+    return lengths.map((length, eventIndex) => {
+      const note = { eventIndex, midi: 60 + (eventIndex % 5), start: at, length };
+      at += length;
+      return note;
+    });
+  };
+  const fourFour = { timeSignature: '4/4' as const, startBeat: 1 };
+
+  it('hears a waltz, and the beat it starts on', () => {
+    const waltz = [8, 4, 12, 4, 4, 4, 8, 4, 12, 8, 4, 12];
+    expect(suggestMeter(line(waltz), fourFour)).toEqual({ timeSignature: '3/4', startBeat: 1 });
+    // the same with a quarter-note pickup
+    expect(suggestMeter(line([4, ...waltz]), fourFour)).toEqual({ timeSignature: '3/4', startBeat: 3 });
+    // and nothing to suggest once the settings agree
+    expect(suggestMeter(line([4, ...waltz]), { timeSignature: '3/4', startBeat: 3 })).toBeNull();
+  });
+
+  it('hears a jig in 6/8', () => {
+    const jig = [2, 2, 2, 6, 2, 2, 2, 6, 4, 2, 6, 2, 2, 2, 6, 6, 6];
+    expect(suggestMeter(line(jig), fourFour)?.timeSignature).toBe('6/8');
+  });
+
+  it('finds the pickup of a tune in four', () => {
+    const march = [8, 4, 4, 8, 8, 12, 4, 16, 8, 4, 4, 16];
+    expect(suggestMeter(line([4, ...march]), fourFour)).toEqual({ timeSignature: '4/4', startBeat: 4 });
+  });
+
+  it('keeps quiet when the notes do not say', () => {
+    expect(suggestMeter(line(Array(24).fill(4)), fourFour)).toBeNull(); // even quarters fit anything
+    expect(suggestMeter(line([8, 4, 12]), fourFour)).toBeNull(); // too short to tell
+    const pcm = synthesiseDemo(22050);
+    const { notes } = segmentNotes(trackPitch(pcm, 22050));
+    expect(arrange(notes, DEFAULT_SETTINGS).detected.meter).toBeNull();
   });
 });
 

@@ -145,6 +145,15 @@ export default function SettingsPanel({ settings, onChange, detected }: Props) {
               set({ timeSignature, startBeat: Math.min(settings.startBeat, feltBeats(timeSignature)) })
             }
           />
+          {detected?.meter && (
+            <p className="field-note" data-testid="meter-suggestion">
+              This sounds more like {detected.meter.timeSignature}
+              {detected.meter.startBeat > 1 && `, starting on beat ${detected.meter.startBeat}`}.{' '}
+              <button type="button" className="link" onClick={() => set({ ...detected.meter })}>
+                Use it
+              </button>
+            </p>
+          )}
         </div>
       </div>
 

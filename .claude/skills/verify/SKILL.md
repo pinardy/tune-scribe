@@ -115,8 +115,17 @@ with a quarter rest ending bars 3 and 4.
   `…/#tune=z.<payload>` to the clipboard (grant `clipboard-read` /
   `clipboard-write`). Opening it shows the score with no "Play recording"
   button, clears the hash and adds the tune to the library.
-- More note tools: chips "Split in two", "Join to next", "Length moves
-  later notes" (off: Longer/Shorter move only that note's end). A split
+- More note tools, behind `.note-editor-more summary` (tap it first):
+  chips "Split in two", "Join to next", "Length moves later notes" (off:
+  Longer/Shorter move only that note's end), "Repeat from this bar" and
+  "Repeat to this bar". A repeat belongs to the bar: the chip reads pressed
+  from any note in it, and playback takes the passage twice.
+- Sheet: the field labelled "Composer" sits under the key; lines after the
+  first start with a bar number (a plain digit `<text>` in the SVG).
+- Piano: eleven `.mp3` samples are fetched once a score exists (watch
+  responses ending `.mp3`). Fonts are `.woff2` files beside the notation
+  chunk; to check a font change, collect the private-use codepoints in the
+  score's `<text>` elements and compare them with the subset's cmap. A split
   note's second half is `data-event="<1000000 + index>"`. Fields labelled
   "Chord" and "Lyric"; typing a space in Lyric steps to the next note.
   "Undo" / "Redo" buttons sit in `.sheet-foot`; Ctrl+Z / Ctrl+Shift+Z work.

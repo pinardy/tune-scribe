@@ -1,6 +1,7 @@
 // The tools for correcting one note, shown in place of the play buttons
 // while a note on the score is picked.
 
+import { MAX_CHORD_LENGTH, MAX_LYRIC_LENGTH } from '../transcribe/marks';
 import Icon, { type IconName } from './Icon';
 
 interface Props {
@@ -19,6 +20,10 @@ interface Props {
   onSplit: () => void;
   canJoin: boolean;
   onJoin: () => void;
+  chord: string;
+  lyric: string;
+  onChord: (text: string) => void;
+  onLyric: (text: string) => void;
   onStep: (direction: -1 | 1) => void;
   onPitch: (semitones: -1 | 1) => void;
   onLength: (steps: -1 | 1) => void;
@@ -67,6 +72,45 @@ export default function NoteEditor(p: Props) {
           )}
           <Tool icon="remove" label="Remove this note" onClick={p.onRemove} />
         </div>
+      </div>
+      <div className="note-editor-words">
+        <label>
+          <span>Chord</span>
+          <input
+            value={p.chord}
+            maxLength={MAX_CHORD_LENGTH}
+            placeholder="Am, G7…"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(e) => p.onChord(e.target.value.trim())}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              p.onStep(1);
+            }}
+          />
+        </label>
+        <label>
+          <span>Lyric</span>
+          <input
+            value={p.lyric}
+            maxLength={MAX_LYRIC_LENGTH}
+            placeholder="one syllable"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(e) => p.onLyric(e.target.value.replace(/\s+/g, ''))}
+            onKeyDown={(e) => {
+              // as in a notation editor: space or Enter goes on to the next note, and so
+              // does a hyphen, which stays to show the word carries on
+              if (e.key === '-' && p.lyric && !p.lyric.endsWith('-')) p.onLyric(`${p.lyric}-`);
+              else if (e.key !== ' ' && e.key !== 'Enter') return;
+              e.preventDefault();
+              p.onStep(1);
+            }}
+          />
+        </label>
       </div>
       <div className="note-editor-more">
         <button type="button" className="chip" aria-pressed={p.isSplit} onClick={p.onSplit} disabled={!p.canSplit}>

@@ -44,6 +44,10 @@ export interface ScoreItem {
   tieToNext?: boolean;
   /** index of the played note this came from; -1 for rests */
   eventIndex: number;
+  /** chord symbol above the note, as typed */
+  chord?: string;
+  /** syllable under the note */
+  lyric?: string;
 }
 
 export interface Measure {

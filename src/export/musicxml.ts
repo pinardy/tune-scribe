@@ -23,11 +23,65 @@ function escapeXml(text: string): string {
 /** 12 divisions to the quarter: a sixteenth is 3 and a triplet eighth 4, both whole numbers. */
 const DIVISIONS_PER_UNIT = 3;
 
+const CHORD_KINDS: Record<string, string> = {
+  '': 'major',
+  m: 'minor',
+  min: 'minor',
+  '7': 'dominant',
+  maj7: 'major-seventh',
+  M7: 'major-seventh',
+  m7: 'minor-seventh',
+  min7: 'minor-seventh',
+  '6': 'major-sixth',
+  m6: 'minor-sixth',
+  dim: 'diminished',
+  dim7: 'diminished-seventh',
+  m7b5: 'half-diminished',
+  aug: 'augmented',
+  '+': 'augmented',
+  sus4: 'suspended-fourth',
+  sus2: 'suspended-second',
+  '9': 'dominant-ninth',
+};
+
+/** A chord symbol as a <harmony>, or as plain words above the staff if it is not one this understands. */
+function chordXml(chord: string): string {
+  const parts = /^([A-G])([#b]?)([^/]*)(?:\/([A-G])([#b]?))?$/.exec(chord.trim());
+  if (!parts) {
+    return [
+      '      <direction placement="above">',
+      '        <direction-type>',
+      `          <words>${escapeXml(chord)}</words>`,
+      '        </direction-type>',
+      '      </direction>',
+    ].join('\n');
+  }
+  const [, step, acc, kind, bassStep, bassAcc] = parts;
+  const alter = (a: string) => (a === '#' ? 1 : a === 'b' ? -1 : 0);
+  const lines = ['      <harmony>', '        <root>', `          <root-step>${step}</root-step>`];
+  if (acc) lines.push(`          <root-alter>${alter(acc)}</root-alter>`);
+  lines.push('        </root>');
+  lines.push(`        <kind text="${escapeXml(kind)}">${CHORD_KINDS[kind] ?? 'other'}</kind>`);
+  if (bassStep) {
+    lines.push('        <bass>', `          <bass-step>${bassStep}</bass-step>`);
+    if (bassAcc) lines.push(`          <bass-alter>${alter(bassAcc)}</bass-alter>`);
+    lines.push('        </bass>');
+  }
+  lines.push('      </harmony>');
+  return lines.join('\n');
+}
+
 /**
- * @param tupletEdge  for a tuplet note, whether it opens or closes its triplet
+ * @param tupletEdge   for a tuplet note, whether it opens or closes its triplet
+ * @param midWord      whether the syllable before this one ended in a hyphen
  */
-function noteXml(item: ScoreItem, tiedFromPrevious: boolean, tupletEdge: 'start' | 'stop' | null): string {
-  const lines: string[] = ['      <note>'];
+function noteXml(
+  item: ScoreItem,
+  tiedFromPrevious: boolean,
+  tupletEdge: 'start' | 'stop' | null,
+  midWord: boolean,
+): string {
+  const lines: string[] = item.chord ? [chordXml(item.chord), '      <note>'] : ['      <note>'];
   if (item.kind === 'rest' || !item.pitch) {
     lines.push(item.wholeBar ? '        <rest measure="yes"/>' : '        <rest/>');
   } else {
@@ -61,6 +115,16 @@ function noteXml(item: ScoreItem, tiedFromPrevious: boolean, tupletEdge: 'start'
     if (tupletEdge) lines.push(`          <tuplet type="${tupletEdge}"/>`);
     lines.push('        </notations>');
   }
+  if (item.lyric) {
+    const carriesOn = item.lyric.endsWith('-');
+    const syllabic = midWord ? (carriesOn ? 'middle' : 'end') : carriesOn ? 'begin' : 'single';
+    lines.push(
+      '        <lyric number="1">',
+      `          <syllabic>${syllabic}</syllabic>`,
+      `          <text>${escapeXml(item.lyric.replace(/-$/, ''))}</text>`,
+      '        </lyric>',
+    );
+  }
   lines.push('      </note>');
   return lines.join('\n');
 }
@@ -89,6 +153,7 @@ export function toMusicXml(score: Score, title: string): string {
   ];
 
   let tied = false;
+  let midWord = false;
   score.measures.forEach((measure, index) => {
     out.push(`    <measure number="${index + 1}">`);
     if (index === 0) {
@@ -140,7 +205,8 @@ export function toMusicXml(score: Score, title: string): string {
           inTriplet = 0;
         }
       }
-      out.push(noteXml(item, tied, edge));
+      out.push(noteXml(item, tied, edge, midWord));
+      if (item.lyric) midWord = item.lyric.endsWith('-');
       tied = item.kind === 'note' && !!item.tieToNext;
     }
     if (index === score.measures.length - 1) {

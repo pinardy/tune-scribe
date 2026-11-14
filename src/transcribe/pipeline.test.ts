@@ -423,6 +423,35 @@ describe('note edits', () => {
   });
 });
 
+describe('chord symbols and lyrics', () => {
+  const pcm = synthesiseDemo(22050);
+  const { notes } = segmentNotes(trackPitch(pcm, 22050));
+  const { score } = arrange(notes, DEFAULT_SETTINGS, {
+    chords: { 0: 'D', 4: 'A7', 8: 'F#m/C#', 12: 'N.C.' },
+    lyrics: { 0: 'Joy-', 1: 'ful,', 2: 'joy-', 3: 'ful' },
+  });
+
+  it('sit on the first notehead of their note', () => {
+    const items = score.measures.flatMap((m) => m.items);
+    expect(items.filter((i) => i.chord).map((i) => [i.eventIndex, i.chord])).toEqual([[0, 'D'], [4, 'A7'], [8, 'F#m/C#'], [12, 'N.C.']]);
+    expect(items.filter((i) => i.lyric).map((i) => i.lyric)).toEqual(['Joy-', 'ful,', 'joy-', 'ful']);
+  });
+
+  it('go into MusicXML as harmony and lyric elements', () => {
+    const xml = toMusicXml(score, 'Ode');
+    expect(xml.match(/<harmony>/g)).toHaveLength(3);
+    expect(xml).toContain('<kind text="7">dominant</kind>');
+    expect(xml).toMatch(/<root-step>F<\/root-step>\s*<root-alter>1<\/root-alter>[\s\S]*?<kind text="m">minor<\/kind>\s*<bass>\s*<bass-step>C<\/bass-step>\s*<bass-alter>1<\/bass-alter>/);
+    expect(xml).toContain('<words>N.C.</words>'); // not a chord it can name: plain words
+    expect([...xml.matchAll(/<syllabic>(\w+)<\/syllabic>\s*<text>([^<]+)<\/text>/g)].map((m) => [m[1], m[2]])).toEqual([
+      ['begin', 'Joy'],
+      ['end', 'ful,'],
+      ['begin', 'joy'],
+      ['end', 'ful'],
+    ]);
+  });
+});
+
 describe('time signature suggestion', () => {
   /** quantised notes from lengths in units, one after another from `start` */
   const line = (lengths: number[], start = 0) => {

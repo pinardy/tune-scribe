@@ -4,6 +4,7 @@
 import type { Key } from '../notation/theory';
 import { applyEdits, type NoteEdits } from './edits';
 import { estimateKey } from './key';
+import { annotate, type NoteTexts } from './marks';
 import { suggestMeter, type MeterSuggestion } from './meter';
 import { quantize } from './quantize';
 import type { Score } from './score';
@@ -30,6 +31,9 @@ export interface Arrangement {
 export interface ArrangeExtras {
   /** hand corrections to individual notes */
   edits?: NoteEdits;
+  /** chord symbols and lyrics, by the note they sit on */
+  chords?: NoteTexts;
+  lyrics?: NoteTexts;
   /** the tempo of the click the take was recorded to; stands in for the detected tempo */
   clickBpm?: number;
 }
@@ -65,8 +69,11 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   const key = settings.key === 'auto' ? detectedKey : settings.key;
   const clef = settings.clef === 'auto' ? chooseClef(quantised.map((n) => n.midi)) : settings.clef;
 
+  const score: Score = { ...buildScore(quantised, key, meter, clef, bpm), swing: feel === 'swing' };
+  if (extras.chords || extras.lyrics) annotate(score, extras.chords ?? {}, extras.lyrics ?? {});
+
   return {
-    score: { ...buildScore(quantised, key, meter, clef, bpm), swing: feel === 'swing' },
+    score,
     stepUnits,
     detected: {
       bpm: tempo.bpm,

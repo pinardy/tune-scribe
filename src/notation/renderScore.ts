@@ -11,6 +11,7 @@
 
 import {
   Accidental,
+  Annotation,
   BarlineType,
   Beam,
   Dot,
@@ -23,6 +24,7 @@ import {
   Voice,
 } from 'vexflow/bravura';
 import type { Score, ScoreItem } from '../transcribe/score';
+import { chordLabel } from '../transcribe/marks';
 import { letterIndex, vexKey, vexKeySignature } from './theory';
 
 /** Colours the staff is drawn with; taken from the theme's CSS variables. */
@@ -72,11 +74,25 @@ const NARROW_WIDTH = 600;
 /** The last system is stretched this much at most; beyond that it stays ragged. */
 const MAX_LAST_SCALE = 1.35;
 
+/** the text face VexFlow brings with it */
+const TEXT_FONT = 'Academico';
+
 const ITEM_WIDTH: Record<string, number> = { w: 56, h: 44, q: 34, '8': 28, '16': 24 };
+
+/** Room for a chord symbol above a system, and for a line of lyrics below it. */
+const CHORD_ROOM = 18;
+const LYRIC_ROOM = 20;
+const CHORD_FONT_SIZE = 13;
+const LYRIC_FONT_SIZE = 12;
 
 function naturalWidth(items: ScoreItem[]): number {
   let width = 22;
-  for (const item of items) width += ITEM_WIDTH[item.duration] + (item.dotted ? 8 : 0);
+  for (const item of items) {
+    const own = ITEM_WIDTH[item.duration] + (item.dotted ? 8 : 0);
+    // words need the room a note alone would not: about half an em a letter
+    const words = Math.max(item.chord?.length ?? 0, item.lyric?.length ?? 0) * 6.5 + 12;
+    width += Math.max(own, item.chord || item.lyric ? words : 0);
+  }
   return Math.max(72, width);
 }
 
@@ -96,6 +112,8 @@ export interface System {
   /** px needed above the top staff line and below the bottom one */
   above: number;
   below: number;
+  /** whether any note in it carries a chord symbol */
+  chords: boolean;
 }
 
 /** Where everything goes at a given width, worked out before anything is drawn. */
@@ -125,7 +143,9 @@ export function layoutScore(score: Score, width: number): ScoreLayout | null {
 
   // ---- pack measures into systems ----
   const systems: System[] = [];
-  const packScale = width < NARROW_WIDTH ? MIN_SCALE : 1;
+  // (not where there are words under or over the notes: squeezed, they run into each other)
+  const hasWords = score.measures.some((m) => m.items.some((item) => item.chord || item.lyric));
+  const packScale = width < NARROW_WIDTH && !hasWords ? MIN_SCALE : 1;
   let current: System | null = null;
   let used = 0;
   widths.forEach((w, i) => {
@@ -134,7 +154,7 @@ export function layoutScore(score: Score, width: number): ScoreLayout | null {
       used += w;
       return;
     }
-    current = { measures: [i], header: systems.length === 0 ? firstHeader : otherHeader, scale: 1, above: 0, below: 0 };
+    current = { measures: [i], header: systems.length === 0 ? firstHeader : otherHeader, scale: 1, above: 0, below: 0, chords: false };
     systems.push(current);
     used = w;
   });
@@ -154,16 +174,21 @@ export function layoutScore(score: Score, width: number): ScoreLayout | null {
     // vertical room for ledger-line notes
     let above = MIN_ABOVE + (s === 0 ? TEMPO_ROOM : 0);
     let below = MIN_BELOW;
+    let chords = false;
+    let lyrics = false;
     for (const i of system.measures) {
       for (const item of score.measures[i].items) {
+        if (item.chord) chords = true;
+        if (item.lyric) lyrics = true;
         if (!item.pitch) continue;
         const step = letterIndex(item.pitch.letter, item.pitch.octave);
         above = Math.max(above, (step - topLine) * 5 + 14 + (s === 0 ? TEMPO_ROOM : 0));
         below = Math.max(below, (bottomLine - step) * 5 + 14);
       }
     }
-    system.above = above;
-    system.below = below;
+    system.chords = chords;
+    system.above = above + (chords ? CHORD_ROOM : 0);
+    system.below = below + (lyrics ? LYRIC_ROOM : 0);
   });
 
   const height =
@@ -244,7 +269,8 @@ export function drawSystems(
               dots: compound ? 1 : 0,
               bpm: compound ? Math.round((score.bpm * 2) / 3) : score.bpm,
             },
-            0,
+            // clear of the chord symbols, which sit where the mark otherwise would
+            system.chords ? -CHORD_ROOM : 0,
           );
         }
       }
@@ -268,6 +294,18 @@ export function drawSystems(
                 alignCenter: item.wholeBar,
               });
         if (item.dotted) Dot.buildAndAttach([note], { all: true });
+        if (item.chord) {
+          const chord = new Annotation(chordLabel(item.chord)).setVerticalJustification(Annotation.VerticalJustify.TOP);
+          chord.setFont(TEXT_FONT, CHORD_FONT_SIZE, 'bold');
+          chord.setStyle(inkStyle);
+          note.addModifier(chord, 0);
+        }
+        if (item.lyric) {
+          const lyric = new Annotation(item.lyric).setVerticalJustification(Annotation.VerticalJustify.BOTTOM);
+          lyric.setFont(TEXT_FONT, LYRIC_FONT_SIZE);
+          lyric.setStyle(inkStyle);
+          note.addModifier(lyric, 0);
+        }
         note.setStyle(inkStyle);
         note.setLedgerLineStyle(lineStyle);
         return note;

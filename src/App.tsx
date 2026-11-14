@@ -22,6 +22,7 @@ import { keyLabel, midiToName, spelledName } from './notation/theory';
 import { clearTake, loadTake, saveSheet, saveTake } from './storage/takeStore';
 import { ThemeProvider, useTheme, type ThemePreference } from './theme';
 import { arrange } from './transcribe';
+import { NO_MARKS, withText, type Marks } from './transcribe/marks';
 import { isSplitHalf, withEdit, type NoteEdit, type NoteEdits } from './transcribe/edits';
 import { METERS } from './transcribe/score';
 import { segmentNotes, type Segmentation } from './transcribe/segment';
@@ -81,13 +82,6 @@ function canShareFiles(): boolean {
   }
 }
 
-/** What has been done to the sheet by hand: the part of a tune with an undo history. */
-interface Marks {
-  edits: NoteEdits;
-}
-
-const NO_MARKS: Marks = { edits: {} };
-
 type Phase = { name: 'idle' } | { name: 'recording' } | { name: 'working'; label: string; progress: number | null };
 
 function clock(seconds: number): string {
@@ -142,7 +136,7 @@ function Scribe() {
 
   // corrections to single notes
   const marks = useHistory<Marks>(NO_MARKS);
-  const { edits } = marks.value;
+  const { edits, chords, lyrics } = marks.value;
   const changeMarks = marks.change;
   const setEdits = useCallback(
     (update: (edits: NoteEdits) => NoteEdits) => changeMarks((m) => ({ ...m, edits: update(m.edits) })),
@@ -191,9 +185,9 @@ function Scribe() {
   const arrangement = useMemo(
     () =>
       take && take.heard.notes.length > 0
-        ? arrange(take.heard.notes, settings, { edits, clickBpm: take.clickBpm })
+        ? arrange(take.heard.notes, settings, { edits, chords, lyrics, clickBpm: take.clickBpm })
         : null,
-    [take, settings, edits],
+    [take, settings, edits, chords, lyrics],
   );
 
   /** the played notes that are on the score, in order, each with its first notehead and written length */
@@ -227,7 +221,7 @@ function Scribe() {
       restoredRef.current = true;
       setTake((current) => current ?? { source: stored.source, analysis: stored.analysis, heard: stored.heard, clickBpm: stored.clickBpm });
       setTitle((current) => (current === UNTITLED && stored.title ? stored.title : current));
-      resetMarks({ edits: stored.edits });
+      resetMarks(stored.marks);
     });
     return () => {
       alive = false;
@@ -237,9 +231,9 @@ function Scribe() {
   // keep the stored title and edits up to date, without writing on every keystroke
   useEffect(() => {
     if (!take) return;
-    const id = window.setTimeout(() => void saveSheet({ title, edits }), 400);
+    const id = window.setTimeout(() => void saveSheet({ title, marks: marks.value }), 400);
     return () => window.clearTimeout(id);
-  }, [take, title, edits]);
+  }, [take, title, marks.value]);
 
 
   const heardTake = useMemo<HeardTake | null>(
@@ -284,7 +278,7 @@ function Scribe() {
         setTitle(newTitle);
         resetMarks(NO_MARKS);
         setSelected(null);
-        void saveTake(next, { title: newTitle, edits: {} });
+        void saveTake(next, { title: newTitle, marks: NO_MARKS });
       } catch {
         setError('The audio could not be analysed. Try again, or try a shorter track.');
       } finally {
@@ -584,6 +578,14 @@ function Scribe() {
     return () => window.removeEventListener('keydown', onKey);
   }, [undo, redo]);
 
+  // chord symbols and lyrics on the picked note; a run of typing in one field undoes as one step
+  const setChord = (text: string) => {
+    if (selected !== null) changeMarks((m) => ({ ...m, chords: withText(m.chords, selected, text) }), `chord ${selected}`);
+  };
+  const setLyric = (text: string) => {
+    if (selected !== null) changeMarks((m) => ({ ...m, lyrics: withText(m.lyrics, selected, text) }), `lyric ${selected}`);
+  };
+
   const editCount = Object.keys(edits).length;
 
   const exportTitle = title.trim() || UNTITLED;
@@ -874,6 +876,10 @@ function Scribe() {
                   onSplit={toggleSplit}
                   canJoin={canJoin}
                   onJoin={joinNext}
+                  chord={chords[selected] ?? ''}
+                  lyric={lyrics[selected] ?? ''}
+                  onChord={setChord}
+                  onLyric={setLyric}
                   onStep={stepPicked}
                   onPitch={nudgePitch}
                   onLength={nudgeLength}

@@ -973,6 +973,31 @@ progress::-moz-progress-bar {
   cursor: default;
 }
 
+.note-editor-words {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
+}
+
+.note-editor-words label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+/* 16px text, so iOS does not zoom in when the field is tapped */
+.note-editor-words input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--sheet);
+  font-size: 1rem;
+}
+
 .note-editor-more {
   display: flex;
   flex-wrap: wrap;

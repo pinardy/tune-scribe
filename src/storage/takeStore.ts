@@ -3,8 +3,8 @@
 // often (title, note edits) are stored beside it and written on their own.
 
 import type { Analysis } from '../audio/analyse';
-import type { NoteEdits } from '../transcribe/edits';
-import { sanitizeEdits } from '../transcribe/edits';
+import type { Marks } from '../transcribe/marks';
+import { sanitizeMarks } from '../transcribe/marks';
 import type { Segmentation } from '../transcribe/segment';
 
 export interface StoredTake {
@@ -17,7 +17,7 @@ export interface StoredTake {
 
 export interface StoredSheet {
   title: string;
-  edits: NoteEdits;
+  marks: Marks;
 }
 
 const DB_NAME = 'tune-scribe';
@@ -102,7 +102,7 @@ export async function loadTake(): Promise<(StoredTake & StoredSheet) | null> {
       analysis: take.analysis,
       heard: take.heard,
       title: typeof sheet?.title === 'string' ? sheet.title : '',
-      edits: sanitizeEdits(sheet?.edits),
+      marks: sanitizeMarks(sheet?.marks),
     };
   } catch {
     return null;

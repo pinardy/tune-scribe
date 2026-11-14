@@ -24,7 +24,7 @@ import {
   Voice,
 } from 'vexflow/core';
 import './fonts';
-import type { Score, ScoreItem } from '../transcribe/score';
+import type { Measure, Score } from '../transcribe/score';
 import { chordLabel } from '../transcribe/marks';
 import { letterIndex, vexKey, vexKeySignature } from './theory';
 
@@ -85,10 +85,14 @@ const CHORD_ROOM = 18;
 const LYRIC_ROOM = 20;
 const CHORD_FONT_SIZE = 13;
 const LYRIC_FONT_SIZE = 12;
+const BAR_NUMBER_FONT_SIZE = 10;
 
-function naturalWidth(items: ScoreItem[]): number {
-  let width = 22;
-  for (const item of items) {
+/** what a repeat sign's thick bar and dots add to a measure */
+const REPEAT_WIDTH = 14;
+
+function naturalWidth(measure: Measure): number {
+  let width = 22 + (measure.repeatStart ? REPEAT_WIDTH : 0) + (measure.repeatEnd ? REPEAT_WIDTH : 0);
+  for (const item of measure.items) {
     const own = ITEM_WIDTH[item.duration] + (item.dotted ? 8 : 0);
     // words need the room a note alone would not: about half an em a letter
     const words = Math.max(item.chord?.length ?? 0, item.lyric?.length ?? 0) * 6.5 + 12;
@@ -139,7 +143,7 @@ export function layoutScore(score: Score, width: number): ScoreLayout | null {
   const keySignature = vexKeySignature(score.key);
   const firstHeader = headerWidth(clef, keySignature, meter.name);
   const otherHeader = headerWidth(clef, keySignature, null);
-  const widths = score.measures.map((m) => naturalWidth(m.items));
+  const widths = score.measures.map(naturalWidth);
   const available = width - 2; // 1px either side so the outer bar lines are not clipped
 
   // ---- pack measures into systems ----
@@ -275,14 +279,27 @@ export function drawSystems(
           );
         }
       }
-      if (measureIndex === score.measures.length - 1) stave.setEndBarType(BarlineType.END);
+      const measure = score.measures[measureIndex];
+      if (measure.repeatStart) stave.setBegBarType(BarlineType.REPEAT_BEGIN);
+      if (measure.repeatEnd) stave.setEndBarType(BarlineType.REPEAT_END);
+      else if (measureIndex === score.measures.length - 1) stave.setEndBarType(BarlineType.END);
       stave.setStyle(lineStyle);
       stave.setDefaultLedgerLineStyle(lineStyle);
       for (const modifier of stave.getModifiers()) modifier.setStyle(inkStyle);
       stave.setContext(ctx).draw();
+      // every line after the first says which bar it starts at, small, above the clef
+      // (drawn here rather than with Stave.setMeasure, which centres the number on the
+      // stave's left edge and so loses half of it off the side of the page)
+      if (first && s > 0) {
+        ctx.save();
+        ctx.setFont(TEXT_FONT, BAR_NUMBER_FONT_SIZE);
+        ctx.setFillStyle(ink.ink);
+        ctx.fillText(String(measureIndex + 1), x + 2, stave.getYForLine(0) - 9);
+        ctx.restore();
+      }
       x += staveWidth;
 
-      const items = score.measures[measureIndex].items;
+      const items = measure.items;
       const staveNotes = items.map((item) => {
         const dot = item.dotted ? 'd' : '';
         const note =

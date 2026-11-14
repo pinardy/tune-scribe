@@ -4,7 +4,7 @@
 import { MAX_CHORD_LENGTH, MAX_LYRIC_LENGTH } from '../transcribe/marks';
 import Icon, { type IconName } from './Icon';
 
-interface Props {
+export interface NoteEditorProps {
   /** the note as written, e.g. "F♯4" */
   name: string;
   /** its place in the tune, e.g. "note 5 of 30" */
@@ -24,6 +24,10 @@ interface Props {
   lyric: string;
   onChord: (text: string) => void;
   onLyric: (text: string) => void;
+  /** repeat signs at the bar this note is in */
+  repeatStart: boolean;
+  repeatEnd: boolean;
+  onRepeat: (sign: 'start' | 'end') => void;
   onStep: (direction: -1 | 1) => void;
   onPitch: (semitones: -1 | 1) => void;
   onLength: (steps: -1 | 1) => void;
@@ -40,7 +44,7 @@ function Tool({ icon, label, onClick, disabled }: { icon: IconName; label: strin
   );
 }
 
-export default function NoteEditor(p: Props) {
+export default function NoteEditor(p: NoteEditorProps) {
   return (
     <div className="note-editor" role="group" aria-label="Correct the picked note">
       <div className="note-editor-head">
@@ -112,7 +116,9 @@ export default function NoteEditor(p: Props) {
           />
         </label>
       </div>
-      <div className="note-editor-more">
+      <details className="note-editor-more">
+        <summary>More: split, join, repeat signs</summary>
+        <div>
         <button type="button" className="chip" aria-pressed={p.isSplit} onClick={p.onSplit} disabled={!p.canSplit}>
           Split in two
         </button>
@@ -128,7 +134,14 @@ export default function NoteEditor(p: Props) {
         >
           Length moves later notes
         </button>
-      </div>
+        <button type="button" className="chip" aria-pressed={p.repeatStart} onClick={() => p.onRepeat('start')}>
+          Repeat from this bar
+        </button>
+        <button type="button" className="chip" aria-pressed={p.repeatEnd} onClick={() => p.onRepeat('end')}>
+          Repeat to this bar
+        </button>
+        </div>
+      </details>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { sanitizeSettings, type ScribeSettings } from '../transcribe/settings';
 
 export interface SharedTune {
   title: string;
+  composer: string;
   notes: NoteEvent[];
   settings: ScribeSettings;
   marks: Marks;
@@ -50,7 +51,7 @@ export async function encodeTune(tune: SharedTune): Promise<string> {
     flat.push(start - previous, Math.max(1, Math.round((note.end - note.start) * 1000)), note.midi);
     previous = start;
   }
-  const json = JSON.stringify({ v: 1, t: tune.title, n: flat, s: tune.settings, m: tune.marks, c: tune.clickBpm });
+  const json = JSON.stringify({ v: 1, t: tune.title, a: tune.composer || undefined, n: flat, s: tune.settings, m: tune.marks, c: tune.clickBpm });
   const bytes = new TextEncoder().encode(json);
   if (typeof CompressionStream === 'undefined') return `j.${toBase64Url(bytes)}`;
   return `z.${toBase64Url(await through(new CompressionStream('deflate-raw'), bytes))}`;
@@ -82,6 +83,7 @@ export async function decodeTune(payload: string): Promise<SharedTune | null> {
     if (notes.length === 0) return null;
     return {
       title: typeof data.t === 'string' ? data.t.slice(0, MAX_TITLE_LENGTH) : '',
+      composer: typeof data.a === 'string' ? data.a.slice(0, MAX_TITLE_LENGTH) : '',
       notes,
       settings: sanitizeSettings(data.s),
       marks: sanitizeMarks(data.m),

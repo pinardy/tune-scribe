@@ -23,8 +23,9 @@ function localPageSize(): PageSize {
 
 /**
  * @param subtitle  the line under the title (the key)
+ * @param composer  set at the right, above the first line of music; may be empty
  */
-export async function scorePdf(score: Score, title: string, subtitle: string): Promise<Uint8Array> {
+export async function scorePdf(score: Score, title: string, subtitle: string, composer = ''): Promise<Uint8Array> {
   // the music and text fonts VexFlow registers; canvas text needs them loaded
   await Promise.all([document.fonts.load('30px Bravura'), document.fonts.load('12px Academico')]).catch(() => {});
 
@@ -67,6 +68,11 @@ export async function scorePdf(score: Score, title: string, subtitle: string): P
       c.fillText(title, pageWidth / 2, MARGIN + 30, SCORE_WIDTH);
       c.font = '15px Academico, Georgia, serif';
       c.fillText(subtitle, pageWidth / 2, MARGIN + 54);
+      if (composer) {
+        c.textAlign = 'right';
+        c.fillText(composer, pageWidth - MARGIN, MARGIN + 74, SCORE_WIDTH);
+        c.textAlign = 'center';
+      }
     }
     if (pageRanges.length > 1) {
       c.font = '12px Academico, Georgia, serif';

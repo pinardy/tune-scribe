@@ -129,7 +129,7 @@ function noteXml(
   return lines.join('\n');
 }
 
-export function toMusicXml(score: Score, title: string): string {
+export function toMusicXml(score: Score, title: string, composer = ''): string {
   const { meter, key, clef, bpm } = score;
   const out: string[] = [
     '<?xml version="1.0" encoding="UTF-8"?>',
@@ -139,6 +139,7 @@ export function toMusicXml(score: Score, title: string): string {
     `    <work-title>${escapeXml(title)}</work-title>`,
     '  </work>',
     '  <identification>',
+    ...(composer ? [`    <creator type="composer">${escapeXml(composer)}</creator>`] : []),
     '    <encoding>',
     '      <software>Tune Scribe</software>',
     `      <encoding-date>${new Date().toISOString().slice(0, 10)}</encoding-date>`,
@@ -156,6 +157,14 @@ export function toMusicXml(score: Score, title: string): string {
   let midWord = false;
   score.measures.forEach((measure, index) => {
     out.push(`    <measure number="${index + 1}">`);
+    if (measure.repeatStart) {
+      out.push(
+        '      <barline location="left">',
+        '        <bar-style>heavy-light</bar-style>',
+        '        <repeat direction="forward"/>',
+        '      </barline>',
+      );
+    }
     if (index === 0) {
       out.push(
         '      <attributes>',
@@ -209,7 +218,14 @@ export function toMusicXml(score: Score, title: string): string {
       if (item.lyric) midWord = item.lyric.endsWith('-');
       tied = item.kind === 'note' && !!item.tieToNext;
     }
-    if (index === score.measures.length - 1) {
+    if (measure.repeatEnd) {
+      out.push(
+        '      <barline location="right">',
+        '        <bar-style>light-heavy</bar-style>',
+        '        <repeat direction="backward"/>',
+        '      </barline>',
+      );
+    } else if (index === score.measures.length - 1) {
       out.push('      <barline location="right">', '        <bar-style>light-heavy</bar-style>', '      </barline>');
     }
     out.push('    </measure>');

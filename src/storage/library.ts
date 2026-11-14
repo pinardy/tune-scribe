@@ -21,6 +21,7 @@ export interface StoredTake {
 
 export interface StoredSheet {
   title: string;
+  composer: string;
   marks: Marks;
   /** how this tune is written; reopening it puts these back */
   settings: ScribeSettings;
@@ -175,6 +176,7 @@ export async function loadTune(id: string): Promise<(StoredTake & StoredSheet) |
       analysis: take.analysis,
       heard: take.heard,
       title: typeof sheet?.title === 'string' ? sheet.title : '',
+      composer: typeof sheet?.composer === 'string' ? sheet.composer : '',
       marks: sanitizeMarks(sheet?.marks),
       settings: sanitizeSettings(sheet?.settings),
     };

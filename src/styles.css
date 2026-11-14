@@ -845,6 +845,37 @@ progress::-moz-progress-bar {
   text-align: center;
 }
 
+/* the composer, set at the right above the music; no trace of the field until it is used */
+.sheet-composer {
+  display: block;
+  width: 100%;
+  margin: -8px 0 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-engraved);
+  font-size: 1rem;
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.sheet-composer::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.55;
+}
+
+.sheet-composer:hover,
+.sheet-composer:focus {
+  border-bottom-color: var(--rule);
+}
+
+.sheet-composer:focus-visible {
+  outline: 0;
+  border-bottom-color: var(--focus);
+}
+
 .sheet-loading {
   padding: 40px 0;
   color: var(--ink-soft);
@@ -1127,10 +1158,20 @@ progress::-moz-progress-bar {
   font-size: 1rem;
 }
 
-.note-editor-more {
+.note-editor-more summary {
+  min-height: 32px;
+  align-content: center;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.note-editor-more > div {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  padding-top: 4px;
 }
 
 .chip {
@@ -1336,8 +1377,13 @@ progress::-moz-progress-bar {
     box-shadow: none;
   }
 
-  .sheet-title {
+  .sheet-title,
+  .sheet-composer {
     border-bottom-color: transparent !important;
+  }
+
+  .sheet-composer:placeholder-shown {
+    display: none;
   }
 
   .score-canvas {

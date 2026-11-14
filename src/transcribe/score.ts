@@ -52,6 +52,10 @@ export interface ScoreItem {
 
 export interface Measure {
   items: ScoreItem[];
+  /** a repeated passage begins with this bar */
+  repeatStart?: boolean;
+  /** …and ends with this one: play again from the last repeat start, or from the top */
+  repeatEnd?: boolean;
 }
 
 export interface Score {
@@ -243,12 +247,36 @@ export interface PerformedNote {
 }
 
 /** The score as a player would perform it: tied noteheads joined, rests as gaps. */
+/** The bars in the order they are played, each repeated passage taken twice. */
+export function playOrder(score: Score): number[] {
+  const order: number[] = [];
+  const taken = new Set<number>();
+  let from = 0;
+  for (let i = 0; i < score.measures.length; i++) {
+    const measure = score.measures[i];
+    if (measure.repeatStart) from = i;
+    order.push(i);
+    if (measure.repeatEnd && !taken.has(i)) {
+      taken.add(i);
+      i = from - 1; // back to the start of the passage
+    }
+  }
+  return order;
+}
+
 export function performance(score: Score): PerformedNote[] {
   const out: PerformedNote[] = [];
   let cursor = 0;
   let open: PerformedNote | null = null;
-  for (const measure of score.measures) {
-    for (const item of measure.items) {
+  let previous = -1;
+  for (const index of playOrder(score)) {
+    // a tie does not carry over a jump back
+    if (open && index !== previous + 1) {
+      out.push(open);
+      open = null;
+    }
+    previous = index;
+    for (const item of score.measures[index].items) {
       if (item.kind === 'note' && item.pitch) {
         if (open) {
           open.lengthUnits = snapUnits(open.lengthUnits + item.units);

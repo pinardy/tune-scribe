@@ -13,7 +13,7 @@ import { arrange } from './index';
 import { suggestMeter } from './meter';
 import { estimateKey, spellInKey } from './key';
 import { quantize } from './quantize';
-import { METERS, buildScore, performance, splitSpan } from './score';
+import { METERS, buildScore, performance, playOrder, splitSpan } from './score';
 import { segmentNotes } from './segment';
 import { DEFAULT_SETTINGS } from './settings';
 import { estimateTempo } from './tempo';
@@ -460,7 +460,8 @@ describe('share link', () => {
     title: 'Öde to Jöy',
     notes,
     settings: { ...DEFAULT_SETTINGS, timeSignature: '3/4' as const, transpose: 2 },
-    marks: { edits: { 3: { semitones: -1 } }, chords: { 0: 'D' }, lyrics: { 0: 'Joy-' } },
+    composer: 'L. van Beethoven',
+    marks: { edits: { 3: { semitones: -1 } }, chords: { 0: 'D' }, lyrics: { 0: 'Joy-' }, repeats: { 0: { start: true as const } } },
     clickBpm: 120,
   };
 
@@ -469,7 +470,7 @@ describe('share link', () => {
     expect(payload).toMatch(/^z\.[A-Za-z0-9_-]+$/);
     expect(payload.length).toBeLessThan(600);
     const back = await decodeTune(payload);
-    expect(back).toMatchObject({ title: tune.title, settings: tune.settings, marks: tune.marks, clickBpm: 120 });
+    expect(back).toMatchObject({ title: tune.title, composer: tune.composer, settings: tune.settings, marks: tune.marks, clickBpm: 120 });
     const extras = { ...tune.marks, clickBpm: 120 };
     expect(arrange(back!.notes, back!.settings, extras).score).toEqual(arrange(notes, tune.settings, extras).score);
   });
@@ -482,7 +483,35 @@ describe('share link', () => {
     // settings and marks from a link are checked like stored ones
     const odd = await decodeTune(`j.${btoa(JSON.stringify({ v: 1, n: [0, 100, 60], s: { tempo: 9999, feel: 'odd' }, m: 'x' }))}`);
     expect(odd?.settings).toMatchObject({ tempo: 240, feel: 'straight' });
-    expect(odd?.marks).toEqual({ edits: {}, chords: {}, lyrics: {} });
+    expect(odd?.marks).toEqual({ edits: {}, chords: {}, lyrics: {}, repeats: {} });
+  });
+});
+
+describe('repeat signs', () => {
+  const pcm = synthesiseDemo(22050);
+  const { notes } = segmentNotes(trackPitch(pcm, 22050));
+  // bars 1–4 repeated, marked at their first and last notes
+  const { score } = arrange(notes, DEFAULT_SETTINGS, { repeats: { 0: { start: true }, 14: { end: true } } });
+
+  it('stand at the bars of the notes they were put on', () => {
+    expect(score.measures.map((m) => (m.repeatStart ? '|:' : '') + (m.repeatEnd ? ':|' : ''))).toEqual(['|:', '', '', ':|', '', '', '', '']);
+  });
+
+  it('are played: the passage twice, then on', () => {
+    expect(playOrder(score)).toEqual([0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7]);
+    const played = performance(score);
+    expect(played).toHaveLength(15 + 30);
+    expect(played[15]).toMatchObject({ eventIndex: 0, startUnits: 64 });
+    // a passage with no start sign goes back to the top
+    const fromTop = arrange(notes, DEFAULT_SETTINGS, { repeats: { 4: { end: true } } }).score;
+    expect(playOrder(fromTop)).toEqual([0, 1, 0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('are written into MusicXML, with the composer', () => {
+    const xml = toMusicXml(score, 'Ode', 'L. van Beethoven');
+    expect(xml).toContain('<creator type="composer">L. van Beethoven</creator>');
+    expect(xml.match(/<repeat direction="forward"\/>/g)).toHaveLength(1);
+    expect(xml.match(/<repeat direction="backward"\/>/g)).toHaveLength(1);
   });
 });
 

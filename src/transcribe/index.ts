@@ -4,7 +4,7 @@
 import type { Key } from '../notation/theory';
 import { applyEdits, type NoteEdits } from './edits';
 import { estimateKey } from './key';
-import { annotate, type NoteTexts } from './marks';
+import { annotate, type NoteTexts, type Repeats } from './marks';
 import { suggestMeter, type MeterSuggestion } from './meter';
 import { quantize } from './quantize';
 import type { Score } from './score';
@@ -34,6 +34,7 @@ export interface ArrangeExtras {
   /** chord symbols and lyrics, by the note they sit on */
   chords?: NoteTexts;
   lyrics?: NoteTexts;
+  repeats?: Repeats;
   /** the tempo of the click the take was recorded to; stands in for the detected tempo */
   clickBpm?: number;
 }
@@ -70,7 +71,9 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   const clef = settings.clef === 'auto' ? chooseClef(quantised.map((n) => n.midi)) : settings.clef;
 
   const score: Score = { ...buildScore(quantised, key, meter, clef, bpm), swing: feel === 'swing' };
-  if (extras.chords || extras.lyrics) annotate(score, extras.chords ?? {}, extras.lyrics ?? {});
+  if (extras.chords || extras.lyrics || extras.repeats) {
+    annotate(score, { chords: extras.chords ?? {}, lyrics: extras.lyrics ?? {}, repeats: extras.repeats ?? {} });
+  }
 
   return {
     score,

@@ -15,9 +15,14 @@ export interface Marks {
   chords: NoteTexts;
   /** one syllable to a note; a trailing hyphen means the word carries on */
   lyrics: NoteTexts;
+  /** repeat signs, by a note in the bar they stand at */
+  repeats: Repeats;
 }
 
-export const NO_MARKS: Marks = { edits: {}, chords: {}, lyrics: {} };
+/** Whether the bar a note is in opens a repeated passage, closes one, or both. */
+export type Repeats = Record<number, { start?: true; end?: true }>;
+
+export const NO_MARKS: Marks = { edits: {}, chords: {}, lyrics: {}, repeats: {} };
 
 export const MAX_CHORD_LENGTH = 16;
 export const MAX_LYRIC_LENGTH = 32;
@@ -40,6 +45,32 @@ function sanitizeTexts(stored: unknown, maxLength: number): NoteTexts {
   return out;
 }
 
+/** `repeats` with one sign at a note's bar switched on or off. */
+export function withRepeat(repeats: Repeats, eventIndex: number, sign: 'start' | 'end', on: boolean): Repeats {
+  const next = { ...repeats };
+  const at = { ...repeats[eventIndex] };
+  if (on) at[sign] = true;
+  else delete at[sign];
+  if (at.start || at.end) next[eventIndex] = at;
+  else delete next[eventIndex];
+  return next;
+}
+
+function sanitizeRepeats(stored: unknown): Repeats {
+  const out: Repeats = {};
+  if (!stored || typeof stored !== 'object') return out;
+  for (const [key, value] of Object.entries(stored as Record<string, unknown>)) {
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || !value || typeof value !== 'object') continue;
+    const v = value as Record<string, unknown>;
+    const at: Repeats[number] = {};
+    if (v.start === true) at.start = true;
+    if (v.end === true) at.end = true;
+    if (at.start || at.end) out[index] = at;
+  }
+  return out;
+}
+
 /** Validates marks loaded from storage or from a link. */
 export function sanitizeMarks(stored: unknown): Marks {
   const s = (stored && typeof stored === 'object' ? stored : {}) as Partial<Record<keyof Marks, unknown>>;
@@ -47,6 +78,7 @@ export function sanitizeMarks(stored: unknown): Marks {
     edits: sanitizeEdits(s.edits),
     chords: sanitizeTexts(s.chords, MAX_CHORD_LENGTH),
     lyrics: sanitizeTexts(s.lyrics, MAX_LYRIC_LENGTH),
+    repeats: sanitizeRepeats(s.repeats),
   };
 }
 
@@ -55,15 +87,18 @@ export function chordLabel(chord: string): string {
   return chord.replace(/([A-G])b/g, '$1♭').replace(/#/g, '♯');
 }
 
-/** Puts each chord and lyric on the first notehead of its note. */
-export function annotate(score: Score, chords: NoteTexts, lyrics: NoteTexts): void {
+/** Puts each chord and lyric on the first notehead of its note, and each repeat sign on that notehead's bar. */
+export function annotate(score: Score, marks: Pick<Marks, 'chords' | 'lyrics' | 'repeats'>): void {
   const seen = new Set<number>();
   for (const measure of score.measures) {
     for (const item of measure.items) {
       if (item.kind !== 'note' || seen.has(item.eventIndex)) continue;
       seen.add(item.eventIndex);
-      if (chords[item.eventIndex]) item.chord = chords[item.eventIndex];
-      if (lyrics[item.eventIndex]) item.lyric = lyrics[item.eventIndex];
+      if (marks.chords[item.eventIndex]) item.chord = marks.chords[item.eventIndex];
+      if (marks.lyrics[item.eventIndex]) item.lyric = marks.lyrics[item.eventIndex];
+      const repeat = marks.repeats[item.eventIndex];
+      if (repeat?.start) measure.repeatStart = true;
+      if (repeat?.end) measure.repeatEnd = true;
     }
   }
 }

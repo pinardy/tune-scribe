@@ -879,6 +879,39 @@ progress::-moz-progress-bar {
   gap: 8px;
 }
 
+/* how the score is played: on its own line under the play buttons */
+.playback-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 100%;
+}
+
+.speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.speed input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.speed output {
+  width: 3.2em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---- correcting a note ---- */
 
 .note-editor {
@@ -1079,6 +1112,10 @@ progress::-moz-progress-bar {
     margin: 14px 0 10px;
   }
 
+  .playback-options {
+    margin-bottom: 10px;
+  }
+
   .transport-play {
     position: sticky;
     bottom: 0;
@@ -1177,6 +1214,7 @@ progress::-moz-progress-bar {
   .masthead,
   .rail,
   .transport,
+  .playback-options,
   .note-editor,
   .sheet-foot,
   .drop-hint,

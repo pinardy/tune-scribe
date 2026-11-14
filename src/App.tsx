@@ -60,6 +60,27 @@ const THEME_LABEL: Record<ThemePreference, string> = {
   dark: 'Theme: dark',
 };
 
+/** How the score is played back. */
+interface PlaybackPrefs {
+  /** 1 = at the written tempo */
+  speed: number;
+  loop: boolean;
+  click: boolean;
+}
+
+const DEFAULT_PLAYBACK: PlaybackPrefs = { speed: 1, loop: false, click: false };
+const MIN_SPEED = 0.5;
+const MAX_SPEED = 1.25;
+
+function sanitizePlayback(stored: unknown): PlaybackPrefs {
+  const s = (stored && typeof stored === 'object' ? stored : {}) as Partial<Record<keyof PlaybackPrefs, unknown>>;
+  return {
+    speed: typeof s.speed === 'number' && s.speed >= MIN_SPEED && s.speed <= MAX_SPEED ? s.speed : 1,
+    loop: s.loop === true,
+    click: s.click === true,
+  };
+}
+
 const UNTITLED = 'Untitled tune';
 /** A take shorter than this cannot hold a tune. */
 const MIN_TAKE_SECONDS = 0.6;
@@ -163,6 +184,7 @@ function Scribe() {
   const playbackRef = useRef<Playback | null>(null);
   const [playing, setPlaying] = useState<'score' | 'recording' | null>(null);
   const [activeEvent, setActiveEvent] = useState<number | null>(null);
+  const [playback, setPlayback] = usePersistentState('scribe.playback', DEFAULT_PLAYBACK, sanitizePlayback);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
@@ -449,23 +471,42 @@ function Scribe() {
     void transcribe({ pcm: synthesiseDemo(22050), sampleRate: 22050 }, 'Demo tune', DEMO_TITLE);
   }, [transcribe]);
 
+  // read when a loop comes round again, by which time these may have changed
+  const loopRef = useRef({ loop: playback.loop, score: arrangement?.score });
+  loopRef.current = { loop: playback.loop, score: arrangement?.score };
+
+  const startScore = async () => {
+    const score = loopRef.current.score;
+    if (!score) return;
+    setPlaying('score');
+    const started = await playScore(
+      score,
+      setActiveEvent,
+      (finished) => {
+        if (playbackRef.current === started) playbackRef.current = null;
+        if (finished && loopRef.current.loop) void startScore();
+        else setPlaying(null);
+      },
+      { speed: playback.speed, click: playback.click },
+    );
+    playbackRef.current = started;
+  };
+
   const togglePlayback = async (what: 'score' | 'recording') => {
     const wasPlaying = playing;
     stopPlayback();
     if (wasPlaying === what || !take || !arrangement) return;
-    const onEnd = () => {
+    if (what === 'score') return startScore();
+    setPlaying(what);
+    playbackRef.current = await playRecording(take.analysis.audio, take.heard.notes, setActiveEvent, () => {
       playbackRef.current = null;
       setPlaying(null);
-    };
-    setPlaying(what);
-    playbackRef.current =
-      what === 'score'
-        ? await playScore(arrangement.score, setActiveEvent, onEnd)
-        : await playRecording(take.analysis.audio, take.heard.notes, setActiveEvent, onEnd);
+    });
   };
 
   // a change to the notation mid-playback would leave sound and score out of step
-  useEffect(() => stopPlayback, [settings, take, edits, stopPlayback]);
+  // (and so would a change of speed, or the click coming or going)
+  useEffect(() => stopPlayback, [settings, take, edits, playback.speed, playback.click, stopPlayback]);
 
   const startOver = () => {
     stopPlayback();
@@ -906,6 +947,39 @@ function Scribe() {
                   >
                     <Icon name={playing === 'recording' ? 'stop' : 'play'} />
                     {playing === 'recording' ? 'Stop' : 'Play recording'}
+                  </button>
+                </div>
+              )}
+              {!picked && (
+                <div className="playback-options">
+                  <label className="speed" title="How fast the score is played; the recording plays as it was">
+                    <span>Speed</span>
+                    <input
+                      aria-label="Score speed"
+                      type="range"
+                      min={MIN_SPEED * 100}
+                      max={MAX_SPEED * 100}
+                      step={5}
+                      value={Math.round(playback.speed * 100)}
+                      onChange={(e) => setPlayback({ ...playback, speed: Number(e.target.value) / 100 })}
+                    />
+                    <output>{Math.round(playback.speed * 100)}%</output>
+                  </label>
+                  <button
+                    type="button"
+                    className="chip"
+                    aria-pressed={playback.loop}
+                    onClick={() => setPlayback({ ...playback, loop: !playback.loop })}
+                  >
+                    Loop
+                  </button>
+                  <button
+                    type="button"
+                    className="chip"
+                    aria-pressed={playback.click}
+                    onClick={() => setPlayback({ ...playback, click: !playback.click })}
+                  >
+                    Click
                   </button>
                 </div>
               )}

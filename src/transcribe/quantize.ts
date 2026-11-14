@@ -1,16 +1,20 @@
 // Snaps played notes onto a rhythm grid.
 
+import { isWholeUnits, snapUnits, swungUnits, type Feel } from './feel';
 import type { NoteEvent } from './segment';
 
 export interface QuantNote {
   /** index into the NoteEvent list this came from */
   eventIndex: number;
   midi: number;
-  /** position from the start of bar 1, in sixteenth-note units */
+  /** position from the start of bar 1, in sixteenth-note units (whole, or thirds where a beat is a triplet) */
   start: number;
   /** written length in units */
   length: number;
 }
+
+/** A triplet eighth, in units. */
+const THIRD = 4 / 3;
 
 /**
  * Places each note by the gap from the previous onset rather than by its
@@ -22,6 +26,8 @@ export interface QuantNote {
  * @param stepUnits    grid coarseness in units (1 = 16ths, 2 = 8ths, 4 = quarters)
  * @param leadInUnits  where the first note falls in bar 1
  * @param beatUnits    length of a beat in units; the last note is rounded up toward one
+ * @param feel         swing stretches the grid to the long-short eighths; triplets adds
+ *   the thirds of each beat to it. Both only where the beat is a quarter.
  */
 export function quantize(
   notes: NoteEvent[],
@@ -29,31 +35,62 @@ export function quantize(
   stepUnits: number,
   leadInUnits = 0,
   beatUnits = 4,
+  feel: Feel = 'straight',
 ): QuantNote[] {
   if (notes.length === 0) return [];
-  const baseStep = unitSeconds * stepUnits;
-  let step = baseStep;
+  const swing = feel === 'swing' && beatUnits === 4;
+  const triplets = feel === 'triplets' && beatUnits === 4;
+  /** when a grid position is played, in units of straight time */
+  const timeOf = (units: number) => (swing ? swungUnits(units) : units);
+
+  /** The grid position after `from` that a stretch of `seconds` most nearly reaches. */
+  const reach = (from: number, seconds: number, unit: number): number => {
+    const origin = timeOf(from);
+    const horizon = seconds / unit + 2 * Math.max(stepUnits, 2);
+    let best = from + stepUnits;
+    let bestError = Infinity;
+    const consider = (position: number) => {
+      if (position <= from + 1e-6) return;
+      const error = Math.abs(seconds - (timeOf(position) - origin) * unit);
+      if (error < bestError - 1e-9) {
+        bestError = error;
+        best = position;
+      }
+    };
+    for (let p = (Math.floor(from / stepUnits + 1e-6) + 1) * stepUnits; timeOf(p) - origin <= horizon; p += stepUnits) {
+      consider(p);
+    }
+    if (triplets) {
+      for (let beat = Math.floor(from / 4) * 4; beat - from <= horizon; beat += 4) {
+        consider(beat + THIRD);
+        consider(beat + 2 * THIRD);
+      }
+    }
+    return snapUnits(best);
+  };
+
+  let unit = unitSeconds;
   let position = leadInUnits;
 
   const starts: number[] = [];
-  const stepAt: number[] = [];
+  const unitAt: number[] = [];
   for (let i = 0; i < notes.length; i++) {
     if (i > 0) {
       const gap = notes[i].start - notes[i - 1].start;
-      const steps = Math.max(1, Math.round(gap / step));
-      position += steps * stepUnits;
+      const next = reach(position, gap, unit);
       // short gaps are the reliable ones for following the tempo
-      if (steps <= 4) {
-        const observed = gap / steps;
-        step = Math.min(baseStep * 1.25, Math.max(baseStep * 0.8, 0.75 * step + 0.25 * observed));
+      if (next - position <= 4 * stepUnits + 1e-6) {
+        const observed = gap / (timeOf(next) - timeOf(position));
+        unit = Math.min(unitSeconds * 1.25, Math.max(unitSeconds * 0.8, 0.75 * unit + 0.25 * observed));
       }
+      position = next;
     }
     starts.push(position);
-    stepAt.push(step);
+    unitAt.push(unit);
   }
 
-  return notes.map((note, i) => {
-    const sounding = Math.max(1, Math.round((note.end - note.start) / stepAt[i])) * stepUnits;
+  const out = notes.map((note, i) => {
+    const sounding = reach(starts[i], note.end - note.start, unitAt[i]) - starts[i];
     // the room this note has: up to the next onset, or for the last note up
     // to the beat it was heading for
     const slot =
@@ -77,6 +114,41 @@ export function quantize(
         length = beat - starts[i];
       }
     }
-    return { eventIndex: i, midi: note.midi, start: starts[i], length };
+    return { eventIndex: i, midi: note.midi, start: starts[i], length: snapUnits(length) };
   });
+  if (triplets) settleTriplets(out);
+  return out;
+}
+
+/**
+ * A beat is either cut in three or it is not. Where any note starts or stops
+ * on a third of a beat, every other start and stop inside that beat is moved
+ * to the nearest third, so the beat can be written as one triplet.
+ */
+function settleTriplets(notes: QuantNote[]): void {
+  const tripletBeats = new Set<number>();
+  for (const note of notes) {
+    for (const edge of [note.start, note.start + note.length]) {
+      if (!isWholeUnits(edge)) tripletBeats.add(Math.floor(edge / 4));
+    }
+  }
+  if (tripletBeats.size === 0) return;
+  const settle = (edge: number): number => {
+    const beat = Math.floor(edge / 4 + 1e-6);
+    if (!tripletBeats.has(beat)) return edge;
+    return snapUnits(beat * 4 + Math.round((edge - beat * 4) / THIRD) * THIRD);
+  };
+  let previousStart = -Infinity;
+  for (let i = 0; i < notes.length; i++) {
+    const note = notes[i];
+    const end = settle(note.start + note.length);
+    // two onsets that settle on the same third stay one after the other
+    note.start = Math.max(settle(note.start), snapUnits(previousStart + THIRD));
+    note.length = Math.max(THIRD, snapUnits(end - note.start));
+    previousStart = note.start;
+  }
+  for (let i = 0; i + 1 < notes.length; i++) {
+    const room = notes[i + 1].start - notes[i].start;
+    if (notes[i].length > room) notes[i].length = snapUnits(room);
+  }
 }

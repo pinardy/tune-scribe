@@ -4,6 +4,7 @@
 import type { Key } from '../notation/theory';
 import { MAJOR_TONICS, MINOR_TONICS, keyLabel } from '../notation/theory';
 import type { Arrangement } from '../transcribe';
+import type { Feel } from '../transcribe/feel';
 import type { Clef, TimeSignature } from '../transcribe/score';
 import { METERS } from '../transcribe/score';
 import type { ScribeSettings } from '../transcribe/settings';
@@ -173,6 +174,32 @@ export default function SettingsPanel({ settings, onChange, detected }: Props) {
           />
         </div>
       </div>
+
+      {METERS[settings.timeSignature].beatUnits === 4 && (
+        <div className="field">
+          <span className="field-label">Feel</span>
+          <div className="field-body">
+            <Segmented<Feel>
+              label="Feel"
+              value={settings.feel}
+              options={[
+                { value: 'straight', label: 'Straight' },
+                { value: 'swing', label: 'Swing' },
+                { value: 'triplets', label: 'Triplets' },
+              ]}
+              onChange={(feel) => set({ feel })}
+            />
+            {settings.feel !== 'straight' && auto && (
+              <p className="field-note">
+                {settings.feel === 'swing'
+                  ? 'Long-short eighths are written as even ones.'
+                  : 'A beat can be cut in three.'}{' '}
+                The tempo is harder to hear this way: if the rhythm looks wrong, set it, or record to a click.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="field">
         <label className="field-label" htmlFor="key-select">

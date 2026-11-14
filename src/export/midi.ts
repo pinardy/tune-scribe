@@ -1,6 +1,7 @@
 // Standard MIDI File export (format 0, one track) of the written score.
 
 import { signatureCount } from '../notation/theory';
+import { swungUnits } from '../transcribe/feel';
 import type { Score } from '../transcribe/score';
 import { performance } from '../transcribe/score';
 
@@ -38,10 +39,12 @@ export function toMidi(score: Score, title: string): Uint8Array {
   meta(0x58, [score.meter.beats, Math.log2(score.meter.beatValue), 24, 8]);
   meta(0x59, [signatureCount(score.key) & 0xff, score.key.mode === 'minor' ? 1 : 0]);
 
+  // a swung score is performed swung; MIDI has no way to say "swing the eighths"
+  const timeOf = (units: number) => (score.swing ? swungUnits(units) : units);
   let cursor = 0; // ticks
   for (const note of performance(score)) {
-    const start = note.startUnits * TICKS_PER_UNIT;
-    const length = note.lengthUnits * TICKS_PER_UNIT;
+    const start = Math.round(timeOf(note.startUnits) * TICKS_PER_UNIT);
+    const length = Math.round(timeOf(note.startUnits + note.lengthUnits) * TICKS_PER_UNIT) - start;
     track.push(...vlq(start - cursor), 0x90, note.midi & 0x7f, VELOCITY);
     // release a hair early so repeated notes re-articulate
     track.push(...vlq(length - 10), 0x80, note.midi & 0x7f, 0);

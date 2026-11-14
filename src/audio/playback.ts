@@ -2,6 +2,7 @@
 // recording (so the two can be compared).
 
 import { midiToHz } from '../notation/theory';
+import { swungUnits } from '../transcribe/feel';
 import type { Score } from '../transcribe/score';
 import { performance as performanceOf } from '../transcribe/score';
 import type { NoteEvent } from '../transcribe/segment';
@@ -83,6 +84,7 @@ export async function playScore(
 ): Promise<Playback> {
   const audio = await audioContext();
   const unit = 60 / score.bpm / 4;
+  const timeOf = (units: number) => (score.swing ? swungUnits(units) : units);
   const startTime = audio.currentTime + 0.08;
   const master = audio.createGain();
   master.gain.value = 0.22;
@@ -91,8 +93,8 @@ export async function playScore(
   const oscillators: OscillatorNode[] = [];
   const spans: { index: number; from: number; to: number }[] = [];
   for (const note of performanceOf(score)) {
-    const from = note.startUnits * unit;
-    const length = note.lengthUnits * unit;
+    const from = timeOf(note.startUnits) * unit;
+    const length = timeOf(note.startUnits + note.lengthUnits) * unit - from;
     const sounding = Math.max(0.05, length - 0.02);
     const osc = audio.createOscillator();
     osc.type = 'triangle'; // a little warmer than a sine, still clearly pitched

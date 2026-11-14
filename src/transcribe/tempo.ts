@@ -33,8 +33,10 @@ function fallback(): TempoEstimate {
  * of circumference q; if the intervals are multiples of q they all land at
  * the same point and the mean cosine is near 1. Half of the right step also
  * fits, but timing jitter costs it more, so the maximum sits on the right one.
+ *
+ * @param thirds  the beat may be cut in three (swing, triplets), so the step may be a third of it
  */
-export function estimateTempo(onsets: number[]): TempoEstimate {
+export function estimateTempo(onsets: number[], thirds = false): TempoEstimate {
   const intervals: number[] = [];
   for (let i = 1; i < onsets.length; i++) {
     const ioi = onsets[i] - onsets[i - 1];
@@ -68,8 +70,9 @@ export function estimateTempo(onsets: number[]): TempoEstimate {
 
   // The step could be a quarter, an eighth or a sixteenth; pick the reading
   // whose tempo is the most ordinary.
-  let best: { perQuarter: 1 | 2 | 4; bpm: number; distance: number } | null = null;
-  for (const perQuarter of [1, 2, 4] as const) {
+  // (with swing or triplets about, it could also be a third or a sixth of the beat)
+  let best: { perQuarter: number; bpm: number; distance: number } | null = null;
+  for (const perQuarter of thirds ? [1, 2, 3, 4, 6] : [1, 2, 4]) {
     const bpm = 60 / (q * perQuarter);
     const distance = Math.abs(Math.log2(bpm / TYPICAL_BPM));
     if (!best || distance < best.distance) best = { perQuarter, bpm, distance };
@@ -78,7 +81,7 @@ export function estimateTempo(onsets: number[]): TempoEstimate {
   return {
     bpm: Math.round(bpm),
     unitSeconds: (q * perQuarter) / 4,
-    stepUnits: (4 / perQuarter) as 1 | 2 | 4,
+    stepUnits: (perQuarter === 1 ? 4 : perQuarter === 4 || perQuarter === 6 ? 1 : 2) as 1 | 2 | 4,
     confidence: Math.max(0, Math.min(1, bestScore)),
   };
 }

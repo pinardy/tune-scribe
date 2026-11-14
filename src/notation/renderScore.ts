@@ -19,6 +19,7 @@ import {
   Stave,
   StaveNote,
   StaveTie,
+  Tuplet,
   Voice,
 } from 'vexflow/bravura';
 import type { Score, ScoreItem } from '../transcribe/score';
@@ -237,7 +238,12 @@ export function drawSystems(
           // tempo is kept in quarter notes; compound time is felt, and marked, in dotted quarters
           const compound = meter.beatUnits === 6;
           stave.setTempo(
-            { duration: 'q', dots: compound ? 1 : 0, bpm: compound ? Math.round((score.bpm * 2) / 3) : score.bpm },
+            {
+              ...(score.swing && { name: 'Swing' }),
+              duration: 'q',
+              dots: compound ? 1 : 0,
+              bpm: compound ? Math.round((score.bpm * 2) / 3) : score.bpm,
+            },
             0,
           );
         }
@@ -267,6 +273,21 @@ export function drawSystems(
         return note;
       });
 
+      // each triplet beat's notes under one bracket
+      const tuplets: Tuplet[] = [];
+      let group: StaveNote[] = [];
+      let filled = 0;
+      items.forEach((item, i) => {
+        if (!item.tuplet) return;
+        group.push(staveNotes[i]);
+        filled += item.units;
+        if (filled > 4 - 1e-6) {
+          tuplets.push(new Tuplet(group, { numNotes: 3, notesOccupied: 2 }));
+          group = [];
+          filled = 0;
+        }
+      });
+
       // soft mode: a bar's contents are already known to add up, and a centred
       // whole rest stands for a full bar in any metre
       const voice = new Voice({ numBeats: meter.beats, beatValue: meter.beatValue });
@@ -282,6 +303,10 @@ export function drawSystems(
         beam.setStyle(inkStyle);
         // draw() alone ignores the element's style; without this, beams stay black on a dark sheet
         beam.setContext(ctx).drawWithStyle();
+      }
+      for (const tuplet of tuplets) {
+        tuplet.setStyle(inkStyle);
+        tuplet.setContext(ctx).drawWithStyle();
       }
 
       items.forEach((item, i) => {

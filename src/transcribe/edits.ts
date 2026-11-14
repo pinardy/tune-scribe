@@ -32,7 +32,10 @@ export function applyEdits(notes: QuantNote[], edits: NoteEdits, stepUnits: numb
   let shift = 0;
   for (const note of notes) {
     const edit = edits[note.eventIndex];
-    const length = Math.max(stepUnits, note.length + (edit?.steps ?? 0) * stepUnits);
+    // never shorter than a grid step, or than it already was (a triplet eighth is under a step)
+    const length = edit?.steps
+      ? Math.max(Math.min(stepUnits, note.length), note.length + edit.steps * stepUnits)
+      : note.length;
     const start = note.start + shift;
     shift += length - note.length;
     if (edit?.removed) continue;

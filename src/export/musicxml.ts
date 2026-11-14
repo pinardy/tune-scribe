@@ -20,7 +20,13 @@ function escapeXml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function noteXml(item: ScoreItem, tiedFromPrevious: boolean): string {
+/** 12 divisions to the quarter: a sixteenth is 3 and a triplet eighth 4, both whole numbers. */
+const DIVISIONS_PER_UNIT = 3;
+
+/**
+ * @param tupletEdge  for a tuplet note, whether it opens or closes its triplet
+ */
+function noteXml(item: ScoreItem, tiedFromPrevious: boolean, tupletEdge: 'start' | 'stop' | null): string {
   const lines: string[] = ['      <note>'];
   if (item.kind === 'rest' || !item.pitch) {
     lines.push(item.wholeBar ? '        <rest measure="yes"/>' : '        <rest/>');
@@ -32,8 +38,7 @@ function noteXml(item: ScoreItem, tiedFromPrevious: boolean): string {
     lines.push(`          <octave>${item.pitch.octave}</octave>`);
     lines.push('        </pitch>');
   }
-  // divisions = 4 per quarter, so a duration is simply the length in sixteenths
-  lines.push(`        <duration>${item.units}</duration>`);
+  lines.push(`        <duration>${Math.round(item.units * DIVISIONS_PER_UNIT)}</duration>`);
   if (tiedFromPrevious) lines.push('        <tie type="stop"/>');
   if (item.tieToNext) lines.push('        <tie type="start"/>');
   lines.push('        <voice>1</voice>');
@@ -41,10 +46,19 @@ function noteXml(item: ScoreItem, tiedFromPrevious: boolean): string {
     lines.push(`        <type>${TYPE_NAMES[item.duration]}</type>`);
     if (item.dotted) lines.push('        <dot/>');
   }
-  if (tiedFromPrevious || item.tieToNext) {
+  if (item.tuplet) {
+    lines.push(
+      '        <time-modification>',
+      '          <actual-notes>3</actual-notes>',
+      '          <normal-notes>2</normal-notes>',
+      '        </time-modification>',
+    );
+  }
+  if (tiedFromPrevious || item.tieToNext || tupletEdge) {
     lines.push('        <notations>');
     if (tiedFromPrevious) lines.push('          <tied type="stop"/>');
     if (item.tieToNext) lines.push('          <tied type="start"/>');
+    if (tupletEdge) lines.push(`          <tuplet type="${tupletEdge}"/>`);
     lines.push('        </notations>');
   }
   lines.push('      </note>');
@@ -80,7 +94,7 @@ export function toMusicXml(score: Score, title: string): string {
     if (index === 0) {
       out.push(
         '      <attributes>',
-        '        <divisions>4</divisions>',
+        `        <divisions>${4 * DIVISIONS_PER_UNIT}</divisions>`,
         '        <key>',
         `          <fifths>${signatureCount(key)}</fifths>`,
         `          <mode>${key.mode}</mode>`,
@@ -104,9 +118,29 @@ export function toMusicXml(score: Score, title: string): string {
         `        <sound tempo="${bpm}"/>`,
         '      </direction>',
       );
+      if (score.swing) {
+        out.push(
+          '      <direction placement="above">',
+          '        <direction-type>',
+          '          <words>Swing</words>',
+          '        </direction-type>',
+          '      </direction>',
+        );
+      }
     }
+    /** how much of the current triplet's beat has been written, in units */
+    let inTriplet = 0;
     for (const item of measure.items) {
-      out.push(noteXml(item, tied));
+      let edge: 'start' | 'stop' | null = null;
+      if (item.tuplet) {
+        if (inTriplet === 0) edge = 'start';
+        inTriplet += item.units;
+        if (inTriplet > 4 - 1e-6) {
+          edge = 'stop';
+          inTriplet = 0;
+        }
+      }
+      out.push(noteXml(item, tied, edge));
       tied = item.kind === 'note' && !!item.tieToNext;
     }
     if (index === score.measures.length - 1) {

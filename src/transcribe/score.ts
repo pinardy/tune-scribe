@@ -2,6 +2,7 @@
 // Everything is measured in sixteenth-note units.
 
 import type { Key, SpelledNote } from '../notation/theory';
+import { isWholeUnits, snapUnits } from './feel';
 import { spellInKey } from './key';
 import type { QuantNote } from './quantize';
 
@@ -29,10 +30,12 @@ export const METERS: Record<TimeSignature, Meter> = {
 
 export interface ScoreItem {
   kind: 'note' | 'rest';
-  /** length in units */
+  /** length in units; two thirds of the written value for a tuplet */
   units: number;
   duration: DurationName;
   dotted: boolean;
+  /** one of a triplet: three eighths (or a quarter and an eighth) in the time of one beat */
+  tuplet?: boolean;
   /** a rest that fills its whole bar, drawn as a centred whole rest */
   wholeBar?: boolean;
   /** notes only */
@@ -52,6 +55,8 @@ export interface Score {
   meter: Meter;
   clef: Clef;
   bpm: number;
+  /** the eighths are written evenly and played long-short */
+  swing?: boolean;
   measures: Measure[];
 }
 
@@ -138,33 +143,65 @@ export function buildScore(notes: QuantNote[], key: Key, meter: Meter, clef: Cle
     return measures[index];
   };
 
+  // beats that have to be written as a triplet: something starts or stops on a third of them
+  const tripletBeats = new Set<number>();
+  if (meter.beatUnits === 4) {
+    for (const note of notes) {
+      for (const edge of [note.start, note.start + note.length]) {
+        if (!isWholeUnits(edge)) tripletBeats.add(Math.floor(edge / 4));
+      }
+    }
+  }
+  const THIRD = 4 / 3;
+
   const emit = (from: number, to: number, note: QuantNote | null, nextMidi?: number) => {
     const pitch = note ? spellInKey(note.midi, key, nextMidi) : undefined;
+    const push = (measure: Measure, units: number, value: { duration: DurationName; dotted: boolean }, last: boolean, tuplet = false) => {
+      measure.items.push(
+        note
+          ? { kind: 'note', units, ...value, ...(tuplet && { tuplet }), pitch, tieToNext: !last, eventIndex: note.eventIndex }
+          : { kind: 'rest', units, ...value, ...(tuplet && { tuplet }), eventIndex: -1 },
+      );
+    };
+
     let cursor = from;
-    while (cursor < to) {
-      const barStart = Math.floor(cursor / barUnits) * barUnits;
-      const end = Math.min(to, barStart + barUnits);
-      const measure = measureAt(cursor);
-      if (!note && cursor === barStart && end === barStart + barUnits) {
+    while (cursor < to - 1e-6) {
+      const measure = measureAt(cursor + 1e-6);
+      const barStart = Math.floor(cursor / barUnits + 1e-6) * barUnits;
+      const barEnd = barStart + barUnits;
+      const beat = Math.floor(cursor / 4 + 1e-6);
+
+      if (tripletBeats.has(beat)) {
+        // inside a triplet beat: whole thirds of it, an eighth each, or a quarter for two
+        const beatStart = beat * 4;
+        const end = Math.min(to, beatStart + 4);
+        const first = Math.min(3, Math.max(0, Math.round((cursor - beatStart) / THIRD)));
+        const slots = Math.min(3, Math.round((end - beatStart) / THIRD)) - first;
+        const last = end >= to - 1e-6;
+        if (slots === 3) push(measure, 4, VALUES[4], last);
+        else if (slots === 2) push(measure, 2 * THIRD, VALUES[4], last, true);
+        else if (slots === 1) push(measure, THIRD, VALUES[2], last, true);
+        cursor = snapUnits(end);
+        continue;
+      }
+
+      // a straight run: up to the bar line or the next triplet beat
+      let end = Math.min(to, barEnd);
+      if (tripletBeats.size > 0) {
+        for (let b = beat + 1; b * 4 < end; b++) {
+          if (tripletBeats.has(b)) {
+            end = b * 4;
+            break;
+          }
+        }
+      }
+      end = Math.round(end);
+      const start = Math.round(cursor);
+      if (!note && start === barStart && end === barEnd) {
         measure.items.push({ kind: 'rest', units: barUnits, duration: 'w', dotted: false, wholeBar: true, eventIndex: -1 });
       } else {
-        const parts = splitSpan(cursor - barStart, end - cursor, meter, !note);
-        parts.forEach((units, i) => {
-          const value = VALUES[units];
-          const lastPiece = i === parts.length - 1 && end === to;
-          measure.items.push(
-            note
-              ? {
-                  kind: 'note',
-                  units,
-                  ...value,
-                  pitch,
-                  tieToNext: !lastPiece,
-                  eventIndex: note.eventIndex,
-                }
-              : { kind: 'rest', units, ...value, eventIndex: -1 },
-          );
-        });
+        const parts = splitSpan(start - barStart, end - start, meter, !note);
+        parts.forEach((units, i) => push(measure, units, VALUES[units], i === parts.length - 1 && end >= to - 1e-6));
       }
       cursor = end;
     }
@@ -172,14 +209,14 @@ export function buildScore(notes: QuantNote[], key: Key, meter: Meter, clef: Cle
 
   let cursor = 0;
   notes.forEach((note, i) => {
-    const start = Math.max(note.start, cursor); // never overlap the previous note
-    const end = start + Math.max(1, note.length - (start - note.start));
+    const start = snapUnits(Math.max(note.start, cursor)); // never overlap the previous note
+    const end = snapUnits(start + Math.max(1, note.length - (start - note.start)));
     if (start > cursor) emit(cursor, start, null);
     emit(start, end, note, notes[i + 1]?.midi);
     cursor = end;
   });
   // rests to the end of the last bar
-  const finalBar = Math.ceil(cursor / barUnits) * barUnits;
+  const finalBar = Math.ceil(cursor / barUnits - 1e-6) * barUnits;
   if (cursor < finalBar) emit(cursor, finalBar, null);
 
   return { key, meter, clef, bpm, measures };
@@ -210,7 +247,7 @@ export function performance(score: Score): PerformedNote[] {
     for (const item of measure.items) {
       if (item.kind === 'note' && item.pitch) {
         if (open) {
-          open.lengthUnits += item.units;
+          open.lengthUnits = snapUnits(open.lengthUnits + item.units);
         } else {
           open = { eventIndex: item.eventIndex, midi: item.pitch.midi, startUnits: cursor, lengthUnits: item.units };
         }
@@ -219,7 +256,7 @@ export function performance(score: Score): PerformedNote[] {
           open = null;
         }
       }
-      cursor += item.units;
+      cursor = snapUnits(cursor + item.units);
     }
   }
   if (open) out.push(open);

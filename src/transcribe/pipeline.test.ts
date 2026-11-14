@@ -272,7 +272,7 @@ describe('end to end: audio to score', () => {
     // every bar adds up to four quarters
     for (const bar of xml.split('<measure ').slice(1)) {
       const total = [...bar.matchAll(/<duration>(\d+)<\/duration>/g)].reduce((s, m) => s + Number(m[1]), 0);
-      expect(total).toBe(16);
+      expect(total).toBe(48); // 12 divisions to the quarter
     }
 
     const midi = toMidi(score, 'Test');
@@ -317,6 +317,79 @@ describe('end to end: audio to score', () => {
     expect(performance(clicked.score).map((n) => n.lengthUnits)).toEqual(DEMO_MELODY.map(([, units]) => units));
     // a set tempo still wins
     expect(arrange(notes, { ...DEFAULT_SETTINGS, tempo: 60 }, { clickBpm: DEMO_BPM }).score.bpm).toBe(60);
+  });
+});
+
+describe('swing and triplets', () => {
+  const BEAT = 0.6; // 100 bpm
+  /** notes from [MIDI pitch, length in beats], played legato from time 0.2 */
+  const play = (tune: [number, number][]) => {
+    let t = 0.2;
+    return tune.map(([midi, beats]) => {
+      const note = { start: t, end: t + beats * BEAT * 0.9, midi, cents: 0, level: 0.1 };
+      t += beats * BEAT;
+      return note;
+    });
+  };
+  const at100 = { ...DEFAULT_SETTINGS, tempo: 100 };
+
+  it('writes a beat cut in three as a triplet', () => {
+    const third = 1 / 3;
+    const heard = play([[60, 1], [62, 1], [64, third], [65, third], [67, third], [72, 1], [71, 2 * third], [69, third], [67, 3]]);
+    const { score } = arrange(heard, { ...at100, feel: 'triplets' }, { edits: {} });
+    expect(performance(score).map((n) => Math.round(n.lengthUnits * 3))).toEqual([12, 12, 4, 4, 4, 12, 8, 4, 36]);
+    const items = score.measures.flatMap((m) => m.items);
+    expect(items.filter((i) => i.tuplet).map((i) => i.duration)).toEqual(['8', '8', '8', 'q', '8']);
+    // bars still add up
+    for (const measure of score.measures) {
+      expect(measure.items.reduce((sum, i) => sum + i.units, 0)).toBeCloseTo(16, 6);
+    }
+
+    const xml = toMusicXml(score, 'Triplets');
+    expect(xml.match(/<tuplet type="start"\/>/g)).toHaveLength(2);
+    expect(xml.match(/<tuplet type="stop"\/>/g)).toHaveLength(2);
+    for (const bar of xml.split('<measure ').slice(1)) {
+      const total = [...bar.matchAll(/<duration>(\d+)<\/duration>/g)].reduce((sum, m) => sum + Number(m[1]), 0);
+      expect(total).toBe(48);
+    }
+    // the same playing without triplets allowed comes out in straight values
+    expect(arrange(heard, at100).score.measures.flatMap((m) => m.items).some((i) => i.tuplet)).toBe(false);
+  });
+
+  it('writes swung eighths as even eighths, and plays them back swung', () => {
+    const long = 2 / 3;
+    const short = 1 / 3;
+    const heard = play([[60, long], [62, short], [64, long], [65, short], [67, 1], [65, long], [64, short], [62, 1], [60, 2]]);
+    const { score } = arrange(heard, { ...at100, feel: 'swing' });
+    expect(score.swing).toBe(true);
+    expect(performance(score).map((n) => n.lengthUnits)).toEqual([2, 2, 2, 2, 4, 2, 2, 4, 8]);
+    expect(toMusicXml(score, 'Swing')).toContain('<words>Swing</words>');
+
+    // in the MIDI file the off-beat eighths sound two thirds of the way through the beat (480 ticks)
+    const midi = toMidi(score, 'Swing');
+    const noteOns: number[] = [];
+    let at = 22;
+    let ticks = 0;
+    while (at < midi.length) {
+      let delta = 0;
+      do delta = (delta << 7) | (midi[at] & 0x7f);
+      while (midi[at++] & 0x80);
+      ticks += delta;
+      if (midi[at] === 0xff) {
+        at += 3 + midi[at + 2]; // meta: type, length, data
+      } else {
+        if (midi[at] === 0x90) noteOns.push(ticks);
+        at += 3;
+      }
+    }
+    expect(noteOns.slice(0, 5)).toEqual([0, 320, 480, 800, 960]);
+  });
+
+  it('leaves the detected tempo of the demo alone when triplets are allowed', () => {
+    const pcm = synthesiseDemo(22050);
+    const { notes } = segmentNotes(trackPitch(pcm, 22050));
+    const { score } = arrange(notes, { ...DEFAULT_SETTINGS, feel: 'triplets' });
+    expect(performance(score).map((n) => n.lengthUnits)).toEqual(DEMO_MELODY.map(([, units]) => units));
   });
 });
 

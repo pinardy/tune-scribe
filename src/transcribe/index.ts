@@ -33,7 +33,12 @@ export interface ArrangeExtras {
 
 export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: ArrangeExtras = {}): Arrangement {
   const meter = METERS[settings.timeSignature];
-  const heard = estimateTempo(notes.map((n) => n.start));
+  // swing and triplets divide a quarter-note beat; 6/8 is in threes already
+  const feel = meter.beatUnits === 4 ? settings.feel : 'straight';
+  const heard = estimateTempo(
+    notes.map((n) => n.start),
+    feel !== 'straight',
+  );
   // a take played to a click has a known tempo, on whatever grid the settings ask for
   const tempo = extras.clickBpm
     ? { bpm: extras.clickBpm, unitSeconds: unitSecondsForBpm(extras.clickBpm), stepUnits: 1 as const, confidence: 1 }
@@ -42,10 +47,14 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   const bpm = settings.tempo === 'auto' ? tempo.bpm : settings.tempo;
   const unitSeconds = settings.tempo === 'auto' ? tempo.unitSeconds : unitSecondsForBpm(settings.tempo);
   // with a detected tempo, don't grid finer than the playing itself does
-  const stepUnits = settings.tempo === 'auto' ? Math.max(tempo.stepUnits, settings.finest) : settings.finest;
+  // (and with triplets no finer than eighths: a sixteenth and a triplet eighth are too close to tell apart)
+  const stepUnits = Math.max(
+    settings.tempo === 'auto' ? Math.max(tempo.stepUnits, settings.finest) : settings.finest,
+    feel === 'triplets' ? 2 : 1,
+  );
 
   const leadIn = (settings.startBeat - 1) * meter.beatUnits;
-  const placed = quantize(notes, unitSeconds, stepUnits, leadIn, meter.beatUnits);
+  const placed = quantize(notes, unitSeconds, stepUnits, leadIn, meter.beatUnits, feel);
   const transposed = settings.transpose ? placed.map((n) => ({ ...n, midi: n.midi + settings.transpose })) : placed;
   const quantised = extras.edits ? applyEdits(transposed, extras.edits, stepUnits) : transposed;
 
@@ -54,7 +63,7 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   const clef = settings.clef === 'auto' ? chooseClef(quantised.map((n) => n.midi)) : settings.clef;
 
   return {
-    score: buildScore(quantised, key, meter, clef, bpm),
+    score: { ...buildScore(quantised, key, meter, clef, bpm), swing: feel === 'swing' },
     stepUnits,
     detected: { bpm: tempo.bpm, tempoConfidence: tempo.confidence, key: detectedKey },
   };

@@ -3,6 +3,7 @@
 
 import type { Key } from '../notation/theory';
 import { MAJOR_TONICS, MINOR_TONICS } from '../notation/theory';
+import type { Feel } from './feel';
 import type { Clef, TimeSignature } from './score';
 import { METERS } from './score';
 
@@ -12,6 +13,8 @@ export interface ScribeSettings {
   timeSignature: TimeSignature;
   /** shortest note value written, in sixteenth-note units: 1 = 16th, 2 = 8th */
   finest: 1 | 2;
+  /** how the beat divides: evenly, swung, or with triplets (ignored in 6/8) */
+  feel: Feel;
   key: 'auto' | Key;
   clef: 'auto' | Clef;
   /** which beat of the first bar the tune starts on (1-based) */
@@ -24,6 +27,7 @@ export const DEFAULT_SETTINGS: ScribeSettings = {
   tempo: 'auto',
   timeSignature: '4/4',
   finest: 1,
+  feel: 'straight',
   key: 'auto',
   clef: 'auto',
   startBeat: 1,
@@ -53,6 +57,7 @@ export function sanitizeSettings(stored: unknown): ScribeSettings {
     out.timeSignature = s.timeSignature as TimeSignature;
   }
   if (s.finest === 1 || s.finest === 2) out.finest = s.finest;
+  if (s.feel === 'swing' || s.feel === 'triplets') out.feel = s.feel;
   if (s.key && typeof s.key === 'object') {
     const k = s.key as Partial<Key>;
     const tonics = k.mode === 'major' ? MAJOR_TONICS : k.mode === 'minor' ? MINOR_TONICS : [];

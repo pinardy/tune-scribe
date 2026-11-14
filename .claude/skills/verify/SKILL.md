@@ -167,3 +167,27 @@ Same mechanism as purrfect-pitch: `html[data-theme]` (absent for system),
 staff colours from `--staff-line` / `--staff-ink` read at render time, so a
 theme change re-renders the score. Beams and ties must be drawn with
 `drawWithStyle()` or they stay black on the dark sheet.
+
+## Rests, runs of notes, sections, trimming
+
+- Rests are pickable too: `[data-event]` with a negative value (the id is
+  `-1 - round(startUnits * 3)`). Picking one shows "Rest in bar N" with
+  "Add a note here"; the new note's `data-event` is `2000000 + id`.
+- Shift-click a second note (or the chip "Pick up to another note", then a
+  tap) picks a run: `.note-editor-what` reads "4 notes notes 1 to 4 of 14".
+  "Up an octave" / "Down an octave" / "Other name (♯ or ♭)" are chips under
+  the editor's "More".
+- "Suggest chords" is a link in `.sheet-hint`; chord symbols are `<text>`
+  elements in the score SVG.
+- With a tune on the desk the capture panel has the group "What a new
+  recording does" (Start a new tune / Add to this tune). "Record again from
+  bar N" (a chip under "More") shows `[data-testid=record-from]`; the next
+  take then replaces the tune from that bar. An added take starts on a bar
+  line.
+- "Trim the start or the end" under the pitch roll opens two sliders
+  ("Keep from", "Keep to") and "Cut off the grey parts".
+- Loop: the chip "Loop" shows inputs "Loop from bar" / "Loop to bar". The
+  speed slider is "Playback speed" and slows the recording as well (through
+  an `<audio>` element, so pitch is kept).
+- "Save PDF" is vector: the file has `/FontFile2` and no `/Subtype /Image`.
+  A title in a script the fonts lack (CJK, say) falls back to image pages.

@@ -13,13 +13,18 @@ writes it out as sheet music.
   picked up, and a warning appears if the input is too quiet, distorting, or
   has no clear pitch. Optionally record to a click (one bar of count-in); the
   take is then written at the click's tempo instead of a detected one.
+  A tune need not be got in one go: "Add to this tune" puts the next
+  recording (or file) after what is there, starting at a bar line, and
+  "Record again from bar N" replaces the tune from that bar on. "Trim the
+  start or the end" cuts dead air or a false start off a take.
 - **Read** — the tune appears as engraved notation (VexFlow): clef, key
   signature, time signature, metronome mark, real note values, rests, beams
   and ties, wrapped to the width of the screen, with a bar number at the
   start of each line and room for a composer's name.
 - **Check** — play the score back on a sampled piano with the sounding note
-  highlighted (at 50–125% speed, looped, with a click if wanted; repeats are
-  taken), or play the original recording against it. "What was heard" shows the raw pitch
+  highlighted (at 50–125% speed, with a click if wanted; repeats are taken;
+  looped, over the whole tune or the bars chosen), or play the original
+  recording against it, at the same speed and at its own pitch. "What was heard" shows the raw pitch
   trace with the notes it was cut into.
 - **Correct** — tempo (with ÷2 / ×2 for the classic half-time/double-time
   miss), time signature (a likelier one, and the beat the tune starts on,
@@ -28,9 +33,13 @@ writes it out as sheet music.
   / F instruments) and clef. Changes re-notate instantly.
 - **Edit** — tap a note to fix it alone: pitch up or down, longer or shorter
   (into the rest or note that follows, or pushing the later notes along),
-  split in two, join to the next, or remove. Put a repeat sign at the start
+  up or down an octave, written under its other name (G♭ for F♯), split in
+  two, join to the next, or remove. Shift-click a second note (or "Pick up
+  to another note") to move or remove a run of notes together. Tap a rest
+  to write in a note that was not heard. Put a repeat sign at the start
   or end of its bar. Add a chord symbol above it or a lyric below it; in the lyric field, space or a hyphen moves to the next
-  note. Everything done by hand can be undone and redone (Ctrl/Cmd+Z). With
+  note. "Suggest chords" writes a likely chord from the key over each bar
+  that has none. Everything done by hand can be undone and redone (Ctrl/Cmd+Z). With
   a note picked, the arrow keys, + / − and Delete work too.
 - **Keep** — every tune is saved in IndexedDB with its audio, title, marks
   and settings. "Saved tunes" lists them; the one that was open comes back
@@ -89,8 +98,13 @@ chords and lyrics after the rhythm grid (step 4), so they survive a change
 of settings; `storage/library.ts` keeps the tunes in IndexedDB;
 `share/link.ts` packs a tune into a URL fragment; `audio/metronome.ts` and
 `audio/levelWatch.ts` are the click and the input-level advice;
-`export/pdf.ts` + `export/scorePdf.ts` draw the score on a canvas page by
-page and write it as a PDF of greyscale images (no PDF library).
+`transcribe/splice.ts` trims a take and joins two (sound, pitch trace and
+notes together); `transcribe/chords.ts` guesses a chord a bar;
+`export/pdf.ts`, `pdfCanvas.ts` and `scorePdf.ts` write the PDF (no PDF
+library): VexFlow draws each page on a stand-in for a canvas that records
+paths and text as PDF operators, with the fonts embedded, so the score is
+vector and its words can be searched. If a title or lyric uses characters
+the embedded fonts lack, the pages go in as greyscale pictures instead.
 
 Steps 3–5 are cheap and pure, which is why changing a setting never re-reads
 the audio.
@@ -112,6 +126,9 @@ scripts that can be run again:
   License; Bravura (Steinberg) reserves its name, so the cut-down copy is
   renamed inside the file. If new notation shows up as empty boxes, its
   glyphs are in a range the script does not keep: add the range and re-run.
+  The same script writes `src/export/fonts/`: the three fonts again as
+  plain TrueType, which is what a PDF can embed (the text face cut down to
+  Latin, for size).
 - `src/audio/piano/` — `scripts/build-piano.sh` takes eleven notes of the
   Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0), from the
   `@audio-samples/piano-mp3-velocity8` package, and trims and re-encodes

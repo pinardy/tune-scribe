@@ -15,13 +15,14 @@ import SettingsPanel from './components/SettingsPanel';
 import { downloadFile, fileStem } from './export/download';
 import { toMidi } from './export/midi';
 import { toMusicXml } from './export/musicxml';
+import { useHistory } from './hooks/useHistory';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useWakeLock } from './hooks/useWakeLock';
 import { keyLabel, midiToName, spelledName } from './notation/theory';
 import { clearTake, loadTake, saveSheet, saveTake } from './storage/takeStore';
 import { ThemeProvider, useTheme, type ThemePreference } from './theme';
 import { arrange } from './transcribe';
-import { withEdit, type NoteEdit, type NoteEdits } from './transcribe/edits';
+import { isSplitHalf, withEdit, type NoteEdit, type NoteEdits } from './transcribe/edits';
 import { METERS } from './transcribe/score';
 import { segmentNotes, type Segmentation } from './transcribe/segment';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './transcribe/settings';
@@ -80,6 +81,13 @@ function canShareFiles(): boolean {
   }
 }
 
+/** What has been done to the sheet by hand: the part of a tune with an undo history. */
+interface Marks {
+  edits: NoteEdits;
+}
+
+const NO_MARKS: Marks = { edits: {} };
+
 type Phase = { name: 'idle' } | { name: 'recording' } | { name: 'working'; label: string; progress: number | null };
 
 function clock(seconds: number): string {
@@ -133,7 +141,15 @@ function Scribe() {
   const [click, setClick] = usePersistentState('scribe.click', DEFAULT_CLICK, sanitizeClick);
 
   // corrections to single notes
-  const [edits, setEdits] = useState<NoteEdits>({});
+  const marks = useHistory<Marks>(NO_MARKS);
+  const { edits } = marks.value;
+  const changeMarks = marks.change;
+  const setEdits = useCallback(
+    (update: (edits: NoteEdits) => NoteEdits) => changeMarks((m) => ({ ...m, edits: update(m.edits) })),
+    [changeMarks],
+  );
+  /** whether a length change pushes the later notes along, or only moves this note's end */
+  const [ripple, setRipple] = usePersistentState('scribe.ripple', false, (stored) => stored === true);
   const [selected, setSelected] = useState<number | null>(null);
 
   // recording
@@ -182,19 +198,27 @@ function Scribe() {
 
   /** the played notes that are on the score, in order, each with its first notehead and written length */
   const written = useMemo(() => {
-    const notes = new Map<number, { name: string; midi: number; units: number }>();
+    const notes = new Map<number, { name: string; midi: number; units: number; tuplet: boolean }>();
     for (const measure of arrangement?.score.measures ?? []) {
       for (const item of measure.items) {
         if (item.kind !== 'note' || !item.pitch) continue;
         const known = notes.get(item.eventIndex);
         if (known) known.units += item.units;
-        else notes.set(item.eventIndex, { name: spelledName(item.pitch), midi: item.pitch.midi, units: item.units });
+        else {
+          notes.set(item.eventIndex, {
+            name: spelledName(item.pitch),
+            midi: item.pitch.midi,
+            units: item.units,
+            tuplet: !!item.tuplet,
+          });
+        }
       }
     }
     return notes;
   }, [arrangement]);
   const picked = selected === null ? undefined : written.get(selected);
 
+  const resetMarks = marks.reset;
   // bring the tune back after a reload
   useEffect(() => {
     let alive = true;
@@ -203,12 +227,12 @@ function Scribe() {
       restoredRef.current = true;
       setTake((current) => current ?? { source: stored.source, analysis: stored.analysis, heard: stored.heard, clickBpm: stored.clickBpm });
       setTitle((current) => (current === UNTITLED && stored.title ? stored.title : current));
-      setEdits(stored.edits);
+      resetMarks({ edits: stored.edits });
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [resetMarks]);
 
   // keep the stored title and edits up to date, without writing on every keystroke
   useEffect(() => {
@@ -258,7 +282,7 @@ function Scribe() {
         const next: Take = { source, analysis, heard: segmentNotes(analysis.track), clickBpm };
         setTake(next);
         setTitle(newTitle);
-        setEdits({});
+        resetMarks(NO_MARKS);
         setSelected(null);
         void saveTake(next, { title: newTitle, edits: {} });
       } catch {
@@ -267,7 +291,7 @@ function Scribe() {
         setPhase({ name: 'idle' });
       }
     },
-    [stopPlayback],
+    [stopPlayback, resetMarks],
   );
 
   const stopLiveLoop = () => {
@@ -452,7 +476,7 @@ function Scribe() {
   const startOver = () => {
     stopPlayback();
     setTake(null);
-    setEdits({});
+    resetMarks(NO_MARKS);
     setSelected(null);
     setTitle(UNTITLED);
     setError(null);
@@ -490,10 +514,26 @@ function Scribe() {
     void playTone(picked.midi + by);
   };
 
-  const canShorten = !!picked && !!arrangement && picked.units > arrangement.stepUnits;
+  const stepUnits = arrangement?.stepUnits ?? 1;
+  const canShorten = !!picked && picked.units > stepUnits;
   const nudgeLength = (by: -1 | 1) => {
     if (by < 0 && !canShorten) return;
-    editPicked((edit) => ({ ...edit, steps: (edit.steps ?? 0) + by }));
+    editPicked((edit) =>
+      ripple ? { ...edit, steps: (edit.steps ?? 0) + by } : { ...edit, stretch: (edit.stretch ?? 0) + by },
+    );
+  };
+
+  // a note cut in two, and two notes made one
+  const isSplit = selected !== null && !!edits[selected]?.split;
+  const canSplit =
+    isSplit || (!!picked && selected !== null && !isSplitHalf(selected) && !picked.tuplet && picked.units >= 2 * stepUnits);
+  const toggleSplit = () => {
+    if (canSplit) editPicked((edit) => ({ ...edit, split: !edit.split }));
+  };
+  const nextNote = selected === null ? undefined : order[order.indexOf(selected) + 1];
+  const canJoin = nextNote !== undefined && !isSplitHalf(nextNote);
+  const joinNext = () => {
+    if (canJoin) setEdits((current) => withEdit(current, nextNote, (edit) => ({ ...edit, joined: true })));
   };
 
   const removePicked = () => {
@@ -526,6 +566,23 @@ function Scribe() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selected]);
+
+  // undo and redo from the keyboard; text fields outside the note tools keep their own
+  const { undo, redo } = marks;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      const target = e.target as Element;
+      if (target.closest?.('input, select, textarea') && !target.closest('.note-editor')) return;
+      e.preventDefault();
+      if (key === 'y' || e.shiftKey) redo();
+      else undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo]);
 
   const editCount = Object.keys(edits).length;
 
@@ -739,25 +796,37 @@ function Scribe() {
                 <Suspense fallback={<p className="sheet-loading">Setting the type…</p>}>
                   <ScoreView score={arrangement.score} activeEvent={activeEvent} selected={selected} onSelect={pick} />
                 </Suspense>
-                <p className="sheet-hint">
-                  {editCount > 0 ? (
-                    <>
-                      {editCount} {editCount === 1 ? 'note' : 'notes'} corrected by hand.{' '}
-                      <button
-                        type="button"
-                        className="link"
-                        onClick={() => {
-                          setEdits({});
-                          setSelected(null);
-                        }}
-                      >
-                        Undo all
+                <div className="sheet-foot">
+                  <p className="sheet-hint">
+                    {editCount > 0 ? (
+                      <>
+                        {editCount} {editCount === 1 ? 'note' : 'notes'} corrected by hand.{' '}
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => {
+                            setEdits(() => ({}));
+                            setSelected(null);
+                          }}
+                        >
+                          Undo all
+                        </button>
+                      </>
+                    ) : (
+                      'Tap a note to correct it.'
+                    )}
+                  </p>
+                  {(marks.canUndo || marks.canRedo) && (
+                    <div className="sheet-history">
+                      <button type="button" className="tool" aria-label="Undo" title="Undo" onClick={undo} disabled={!marks.canUndo}>
+                        <Icon name="undo" />
                       </button>
-                    </>
-                  ) : (
-                    'Tap a note to correct it.'
+                      <button type="button" className="tool" aria-label="Redo" title="Redo" onClick={redo} disabled={!marks.canRedo}>
+                        <Icon name="redo" />
+                      </button>
+                    </div>
                   )}
-                </p>
+                </div>
               </>
             ) : recording ? (
               <div className="sheet-empty">
@@ -798,6 +867,13 @@ function Scribe() {
                   position={`note ${order.indexOf(selected) + 1} of ${order.length}`}
                   edited={!!edits[selected]}
                   canShorten={canShorten}
+                  ripple={ripple}
+                  onRipple={() => setRipple(!ripple)}
+                  isSplit={isSplit}
+                  canSplit={canSplit}
+                  onSplit={toggleSplit}
+                  canJoin={canJoin}
+                  onJoin={joinNext}
                   onStep={stepPicked}
                   onPitch={nudgePitch}
                   onLength={nudgeLength}

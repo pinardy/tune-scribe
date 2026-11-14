@@ -7,7 +7,7 @@ import { toMidi } from '../export/midi';
 import { toMusicXml } from '../export/musicxml';
 import { buildPdf } from '../export/pdf';
 import { midiToHz, spelledName } from '../notation/theory';
-import { withEdit } from './edits';
+import { applyEdits, splitHalf, withEdit } from './edits';
 import { arrange } from './index';
 import { suggestMeter } from './meter';
 import { estimateKey, spellInKey } from './key';
@@ -391,6 +391,35 @@ describe('swing and triplets', () => {
     const { notes } = segmentNotes(trackPitch(pcm, 22050));
     const { score } = arrange(notes, { ...DEFAULT_SETTINGS, feel: 'triplets' });
     expect(performance(score).map((n) => n.lengthUnits)).toEqual(DEMO_MELODY.map(([, units]) => units));
+  });
+});
+
+describe('note edits', () => {
+  const quarters = () => [60, 62, 64, 65].map((midi, eventIndex) => ({ eventIndex, midi, start: eventIndex * 4, length: 4 }));
+  const shape = (notes: { start: number; length: number }[]) => notes.map((n) => [n.start, n.length]);
+
+  it('stretches a note into the next one without moving anything else', () => {
+    const out = applyEdits(quarters(), { 1: { stretch: 1 } }, 2);
+    expect(shape(out)).toEqual([[0, 4], [4, 6], [10, 2], [12, 4]]);
+    // the next note keeps a step of itself however far the stretch asks to go
+    expect(shape(applyEdits(quarters(), { 1: { stretch: 5 } }, 2))[2]).toEqual([10, 2]);
+    // shorter leaves a rest
+    expect(shape(applyEdits(quarters(), { 1: { stretch: -1 } }, 2))).toEqual([[0, 4], [4, 2], [8, 4], [12, 4]]);
+  });
+
+  it('joins a note to the one before it', () => {
+    const out = applyEdits(quarters(), { 2: { joined: true } }, 2);
+    expect(shape(out)).toEqual([[0, 4], [4, 8], [12, 4]]);
+    expect(out.map((n) => n.midi)).toEqual([60, 62, 65]);
+  });
+
+  it('splits a note in two, the second half editable on its own', () => {
+    const out = applyEdits(quarters(), { 1: { split: true }, [splitHalf(1)]: { semitones: 2 } }, 2);
+    expect(shape(out)).toEqual([[0, 4], [4, 2], [6, 2], [8, 4], [12, 4]]);
+    expect(out.map((n) => n.midi)).toEqual([60, 62, 64, 64, 65]);
+    expect(out[2].eventIndex).toBe(splitHalf(1));
+    // too short to split on this grid: left whole
+    expect(applyEdits(quarters(), { 1: { split: true } }, 4)).toHaveLength(4);
   });
 });
 

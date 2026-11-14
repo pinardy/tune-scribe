@@ -11,6 +11,14 @@ interface Props {
   /** whether this note has been changed by hand */
   edited: boolean;
   canShorten: boolean;
+  /** whether a length change pushes the later notes along */
+  ripple: boolean;
+  onRipple: () => void;
+  isSplit: boolean;
+  canSplit: boolean;
+  onSplit: () => void;
+  canJoin: boolean;
+  onJoin: () => void;
   onStep: (direction: -1 | 1) => void;
   onPitch: (semitones: -1 | 1) => void;
   onLength: (steps: -1 | 1) => void;
@@ -54,11 +62,28 @@ export default function NoteEditor(p: Props) {
         <div className="tool-group is-last">
           {p.edited && (
             <button type="button" className="link" onClick={p.onReset}>
-              Undo
+              Reset
             </button>
           )}
           <Tool icon="remove" label="Remove this note" onClick={p.onRemove} />
         </div>
+      </div>
+      <div className="note-editor-more">
+        <button type="button" className="chip" aria-pressed={p.isSplit} onClick={p.onSplit} disabled={!p.canSplit}>
+          Split in two
+        </button>
+        <button type="button" className="chip" onClick={p.onJoin} disabled={!p.canJoin}>
+          Join to next
+        </button>
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={p.ripple}
+          onClick={p.onRipple}
+          title="When on, making this note longer or shorter moves every note after it"
+        >
+          Length moves later notes
+        </button>
       </div>
     </div>
   );

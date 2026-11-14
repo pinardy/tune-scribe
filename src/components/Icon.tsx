@@ -15,6 +15,8 @@ const ICON = {
   plus: <path d="M4.5 10h11M10 4.5v11" />,
   previous: <path d="M12.5 4.5 7 10l5.5 5.5" />,
   next: <path d="M7.5 4.5 13 10l-5.5 5.5" />,
+  undo: <path d="M7 4.5 3.5 8 7 11.5M3.5 8h8a4.5 4.5 0 0 1 0 9H8" />,
+  redo: <path d="M13 4.5 16.5 8 13 11.5M16.5 8h-8a4.5 4.5 0 0 0 0 9H12" />,
   remove: <path d="M4 6h12M8 6V4h4v2M5.5 6l.7 10h7.6l.7-10M8.5 9v4.5M11.5 9v4.5" />,
 };
 

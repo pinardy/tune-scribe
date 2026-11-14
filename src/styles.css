@@ -799,11 +799,31 @@ progress::-moz-progress-bar {
   stroke: none !important;
 }
 
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 36px;
+  margin-top: 8px;
+}
+
 .sheet-hint {
-  margin-top: 10px;
   color: var(--ink-soft);
   font-size: 0.8125rem;
   text-align: center;
+}
+
+.sheet-history {
+  display: flex;
+  gap: 4px;
+}
+
+.sheet-history .tool {
+  width: 36px;
+  height: 36px;
+  border-color: transparent;
+  background: transparent;
 }
 
 .sheet-hint .link {
@@ -949,6 +969,40 @@ progress::-moz-progress-bar {
 }
 
 .tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.note-editor-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  background: var(--sheet);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--control);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.chip:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -1099,7 +1153,7 @@ progress::-moz-progress-bar {
   .rail,
   .transport,
   .note-editor,
-  .sheet-hint,
+  .sheet-foot,
   .drop-hint,
   .score-cursor {
     display: none !important;

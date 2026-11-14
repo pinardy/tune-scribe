@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { analyse, type Analysis } from './audio/analyse';
+import { analyse } from './audio/analyse';
 import { recordingSupported, startRecording, type Recorder, type Recording } from './audio/capture';
 import { MAX_SECONDS, decodeAudio } from './audio/decode';
 import { DEMO_TITLE, synthesiseDemo } from './audio/demo';
@@ -19,14 +19,26 @@ import { useHistory } from './hooks/useHistory';
 import { usePersistentState } from './hooks/usePersistentState';
 import { useWakeLock } from './hooks/useWakeLock';
 import { keyLabel, midiToName, spelledName } from './notation/theory';
-import { clearTake, loadTake, saveSheet, saveTake } from './storage/takeStore';
+import { LINK_PREFIX, MAX_LINK_LENGTH, decodeTune, encodeTune } from './share/link';
+import {
+  currentTuneId,
+  deleteTune,
+  listTunes,
+  loadTune,
+  newTuneId,
+  saveSheet,
+  saveTune,
+  setCurrentTuneId,
+  type StoredTake,
+  type TuneSummary,
+} from './storage/library';
 import { ThemeProvider, useTheme, type ThemePreference } from './theme';
 import { arrange } from './transcribe';
 import { NO_MARKS, withText, type Marks } from './transcribe/marks';
 import { isSplitHalf, withEdit, type NoteEdit, type NoteEdits } from './transcribe/edits';
 import { METERS } from './transcribe/score';
-import { segmentNotes, type Segmentation } from './transcribe/segment';
-import { DEFAULT_SETTINGS, sanitizeSettings } from './transcribe/settings';
+import { segmentNotes } from './transcribe/segment';
+import { DEFAULT_SETTINGS, sanitizeSettings, type ScribeSettings } from './transcribe/settings';
 
 // VexFlow and its embedded music fonts are most of the bundle — load them
 // apart from the shell so the first screen appears straight away
@@ -85,13 +97,11 @@ const UNTITLED = 'Untitled tune';
 /** A take shorter than this cannot hold a tune. */
 const MIN_TAKE_SECONDS = 0.6;
 
-interface Take {
-  /** where the audio came from, for the status line */
-  source: string;
-  analysis: Analysis;
-  heard: Segmentation;
-  /** tempo of the click it was recorded to, if any */
-  clickBpm?: number;
+/** The audio as heard; what the library stores. `analysis` is null for a tune opened from a link. */
+type Take = StoredTake;
+
+function day(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
 /** Whether the browser's share sheet takes files (phones do; most desktops don't). */
@@ -151,6 +161,9 @@ function Scribe() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [take, setTake] = useState<Take | null>(null);
+  /** the open tune's id in the library; null when it is not saved (nothing heard, or storage refused) */
+  const [tuneId, setTuneId] = useState<string | null>(null);
+  const [library, setLibrary] = useState<TuneSummary[]>([]);
   const [title, setTitle] = useState(UNTITLED);
   const [settings, setSettings] = usePersistentState('scribe.settings', DEFAULT_SETTINGS, sanitizeSettings);
   const [click, setClick] = usePersistentState('scribe.click', DEFAULT_CLICK, sanitizeClick);
@@ -235,41 +248,95 @@ function Scribe() {
   const picked = selected === null ? undefined : written.get(selected);
 
   const resetMarks = marks.reset;
-  // bring the tune back after a reload
+  const refreshLibrary = useCallback(() => void listTunes().then(setLibrary), []);
+
+  /** Puts a tune on the desk: one from the library, or one that came in a link. */
+  const show = useCallback(
+    (id: string | null, tune: Take, sheet: { title: string; marks: Marks; settings: ScribeSettings }) => {
+      setTake(tune);
+      setTuneId(id);
+      setCurrentTuneId(id);
+      setTitle(sheet.title || UNTITLED);
+      setSettings(sheet.settings);
+      resetMarks(sheet.marks);
+      setSelected(null);
+    },
+    [resetMarks, setSettings],
+  );
+
+  /** Opens the tune a link carries, and keeps it in the library like any other. */
+  const openLink = useCallback(
+    async (hash: string): Promise<boolean> => {
+      if (!hash.startsWith(LINK_PREFIX)) return false;
+      const shared = await decodeTune(hash.slice(LINK_PREFIX.length));
+      // the link has done its work; a reload should not open a second copy
+      history.replaceState(null, '', location.pathname + location.search);
+      if (!shared) {
+        setError('That link does not hold a tune. It may have been cut short when it was copied.');
+        return false;
+      }
+      const tune: Take = {
+        source: 'Shared link',
+        clickBpm: shared.clickBpm,
+        analysis: null,
+        heard: { notes: shared.notes, tuningCents: 0, contour: new Float32Array(0) },
+      };
+      const sheet = { title: shared.title, marks: shared.marks, settings: shared.settings };
+      const id = newTuneId();
+      const saved = await saveTune(id, tune, sheet);
+      show(saved ? id : null, tune, sheet);
+      refreshLibrary();
+      return true;
+    },
+    [show, refreshLibrary],
+  );
+
+  // on arrival: the tune in the link, or else the one that was open last
   useEffect(() => {
     let alive = true;
-    void loadTake().then((stored) => {
-      if (!alive || !stored) return;
+    void (async () => {
+      refreshLibrary();
+      if (await openLink(location.hash)) return;
+      const id = currentTuneId();
+      const stored = id ? await loadTune(id) : null;
+      if (!alive || !id || !stored) return;
       restoredRef.current = true;
-      setTake((current) => current ?? { source: stored.source, analysis: stored.analysis, heard: stored.heard, clickBpm: stored.clickBpm });
-      setTitle((current) => (current === UNTITLED && stored.title ? stored.title : current));
-      resetMarks(stored.marks);
-    });
+      show(id, stored, stored);
+    })();
+    const onHash = () => void openLink(location.hash);
+    window.addEventListener('hashchange', onHash);
     return () => {
       alive = false;
+      window.removeEventListener('hashchange', onHash);
     };
-  }, [resetMarks]);
+  }, [openLink, show, refreshLibrary]);
 
-  // keep the stored title and edits up to date, without writing on every keystroke
+  // keep the stored title, marks and settings up to date, without writing on every keystroke
   useEffect(() => {
-    if (!take) return;
-    const id = window.setTimeout(() => void saveSheet({ title, marks: marks.value }), 400);
+    if (!take || !tuneId) return;
+    const id = window.setTimeout(() => {
+      void saveSheet(tuneId, take, { title, marks: marks.value, settings }).then(refreshLibrary);
+    }, 400);
     return () => window.clearTimeout(id);
-  }, [take, title, marks.value]);
+  }, [take, tuneId, title, marks.value, settings, refreshLibrary]);
 
+  /** how long the tune runs: the audio's length, or the last note's end when there is no audio */
+  const takeSeconds = take
+    ? (take.analysis?.track.duration ?? (take.heard.notes.length ? take.heard.notes[take.heard.notes.length - 1].end : 0))
+    : 0;
 
   const heardTake = useMemo<HeardTake | null>(
     () =>
       take
         ? {
             contour: take.heard.contour,
-            hopSeconds: take.analysis.track.hopSeconds,
-            offsetSeconds: take.analysis.track.offsetSeconds,
-            duration: take.analysis.track.duration,
+            hopSeconds: take.analysis?.track.hopSeconds ?? 0.01,
+            offsetSeconds: take.analysis?.track.offsetSeconds ?? 0,
+            duration: takeSeconds,
             notes: take.heard.notes,
           }
         : null,
-    [take],
+    [take, takeSeconds],
   );
 
   // in the one-column layout the sheet sits below the capture controls: bring a new transcription into view
@@ -296,18 +363,23 @@ function Scribe() {
           setPhase({ name: 'working', label: 'Listening for notes', progress }),
         );
         const next: Take = { source, analysis, heard: segmentNotes(analysis.track), clickBpm };
+        // a take with nothing in it is shown, so its message can be read, but not kept
+        const id = next.heard.notes.length > 0 ? newTuneId() : null;
+        const saved = !!id && (await saveTune(id, next, { title: newTitle, marks: NO_MARKS, settings }));
         setTake(next);
+        setTuneId(saved ? id : null);
+        setCurrentTuneId(saved ? id : null);
         setTitle(newTitle);
         resetMarks(NO_MARKS);
         setSelected(null);
-        void saveTake(next, { title: newTitle, marks: NO_MARKS });
+        refreshLibrary();
       } catch {
         setError('The audio could not be analysed. Try again, or try a shorter track.');
       } finally {
         setPhase({ name: 'idle' });
       }
     },
-    [stopPlayback, resetMarks],
+    [stopPlayback, resetMarks, settings, refreshLibrary],
   );
 
   const stopLiveLoop = () => {
@@ -497,6 +569,7 @@ function Scribe() {
     stopPlayback();
     if (wasPlaying === what || !take || !arrangement) return;
     if (what === 'score') return startScore();
+    if (!take.analysis) return;
     setPlaying(what);
     playbackRef.current = await playRecording(take.analysis.audio, take.heard.notes, setActiveEvent, () => {
       playbackRef.current = null;
@@ -508,15 +581,37 @@ function Scribe() {
   // (and so would a change of speed, or the click coming or going)
   useEffect(() => stopPlayback, [settings, take, edits, playback.speed, playback.click, stopPlayback]);
 
+  /** Clears the desk. The tune that was on it stays in the library. */
   const startOver = () => {
     stopPlayback();
     setTake(null);
+    setTuneId(null);
+    setCurrentTuneId(null);
     resetMarks(NO_MARKS);
     setSelected(null);
     setTitle(UNTITLED);
+    // its settings were its own; the next tune starts from automatic
+    setSettings(DEFAULT_SETTINGS);
     setError(null);
     setNotice(null);
-    void clearTake();
+  };
+
+  const openTune = async (id: string) => {
+    if (id === tuneId) return;
+    stopPlayback();
+    setError(null);
+    setNotice(null);
+    const stored = await loadTune(id);
+    if (stored) show(id, stored, stored);
+    else setError('That tune could not be opened.');
+    refreshLibrary();
+  };
+
+  const removeTune = async (tune: TuneSummary) => {
+    if (!window.confirm(`Delete “${tune.title || UNTITLED}”? This cannot be undone.`)) return;
+    if (tune.id === tuneId) startOver();
+    await deleteTune(tune.id);
+    refreshLibrary();
   };
 
   // ---- correcting single notes ----
@@ -679,6 +774,30 @@ function Scribe() {
     }
   };
 
+  const copyLink = async () => {
+    if (!take) return;
+    setError(null);
+    const payload = await encodeTune({
+      title: exportTitle,
+      notes: take.heard.notes,
+      settings,
+      marks: marks.value,
+      clickBpm: take.clickBpm,
+    });
+    const link = `${location.origin}${location.pathname}${LINK_PREFIX}${payload}`;
+    if (link.length > MAX_LINK_LENGTH) {
+      setError('This tune is too long to fit in a link. Share the PDF or the MusicXML file instead.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      setNotice('Link copied. It opens this score, without the recording, in Tune Scribe.');
+    } catch {
+      // no clipboard here: hand the link over in a box it can be copied from
+      window.prompt('Copy this link:', link);
+    }
+  };
+
   const noteCount = take?.heard.notes.length ?? 0;
   const tuning = take?.heard.tuningCents ?? 0;
 
@@ -800,8 +919,43 @@ function Scribe() {
             {notice && <p className="message">{notice}</p>}
             {take && !busy && (
               <button type="button" className="link start-over" onClick={startOver}>
-                Clear this tune and start over
+                {tuneId ? 'Put this tune away and start a new one' : 'Clear this and start again'}
               </button>
+            )}
+            {library.length > 0 && (
+              <details className="library">
+                <summary>
+                  Saved tunes <span>{library.length}</span>
+                </summary>
+                <ul>
+                  {library.map((tune) => (
+                    <li key={tune.id}>
+                      <button
+                        type="button"
+                        className="library-open"
+                        aria-current={tune.id === tuneId || undefined}
+                        disabled={busy}
+                        onClick={() => void openTune(tune.id)}
+                      >
+                        <strong>{tune.title || UNTITLED}</strong>
+                        <span>
+                          {tune.notes} {tune.notes === 1 ? 'note' : 'notes'}, {clock(tune.seconds)}, {day(tune.updatedAt)}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="tool"
+                        aria-label={`Delete ${tune.title || UNTITLED}`}
+                        title="Delete"
+                        disabled={busy}
+                        onClick={() => void removeTune(tune)}
+                      >
+                        <Icon name="remove" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </details>
             )}
           </section>
 
@@ -810,7 +964,7 @@ function Scribe() {
               <h2 id="heard-heading">What was heard</h2>
               {take && !recording && (
                 <span className="heard-meta" data-testid="heard-meta">
-                  {noteCount} {noteCount === 1 ? 'note' : 'notes'} in {clock(take.analysis.track.duration)}
+                  {noteCount} {noteCount === 1 ? 'note' : 'notes'} in {clock(takeSeconds)}
                   {Math.abs(tuning) >= 8 && `, ${Math.abs(tuning)}¢ ${tuning > 0 ? 'sharp' : 'flat'} overall`}
                 </span>
               )}
@@ -939,15 +1093,17 @@ function Scribe() {
                     <Icon name={playing === 'score' ? 'stop' : 'play'} />
                     {playing === 'score' ? 'Stop' : 'Play score'}
                   </button>
-                  <button
-                    type="button"
-                    className="button"
-                    onClick={() => void togglePlayback('recording')}
-                    aria-pressed={playing === 'recording'}
-                  >
-                    <Icon name={playing === 'recording' ? 'stop' : 'play'} />
-                    {playing === 'recording' ? 'Stop' : 'Play recording'}
-                  </button>
+                  {take?.analysis && (
+                    <button
+                      type="button"
+                      className="button"
+                      onClick={() => void togglePlayback('recording')}
+                      aria-pressed={playing === 'recording'}
+                    >
+                      <Icon name={playing === 'recording' ? 'stop' : 'play'} />
+                      {playing === 'recording' ? 'Stop' : 'Play recording'}
+                    </button>
+                  )}
                 </div>
               )}
               {!picked && (
@@ -1005,6 +1161,10 @@ function Scribe() {
                 <button type="button" className="button" onClick={() => window.print()}>
                   <Icon name="print" />
                   Print
+                </button>
+                <button type="button" className="button" onClick={() => void copyLink()} aria-label="Copy a link to this tune">
+                  <Icon name="link" />
+                  Link
                 </button>
               </div>
             </div>

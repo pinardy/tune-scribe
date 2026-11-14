@@ -7,6 +7,7 @@ import { toMidi } from '../export/midi';
 import { toMusicXml } from '../export/musicxml';
 import { buildPdf } from '../export/pdf';
 import { midiToHz, spelledName } from '../notation/theory';
+import { decodeTune, encodeTune } from '../share/link';
 import { applyEdits, splitHalf, withEdit } from './edits';
 import { arrange } from './index';
 import { suggestMeter } from './meter';
@@ -449,6 +450,39 @@ describe('chord symbols and lyrics', () => {
       ['begin', 'joy'],
       ['end', 'ful'],
     ]);
+  });
+});
+
+describe('share link', () => {
+  const pcm = synthesiseDemo(22050);
+  const { notes } = segmentNotes(trackPitch(pcm, 22050));
+  const tune = {
+    title: 'Öde to Jöy',
+    notes,
+    settings: { ...DEFAULT_SETTINGS, timeSignature: '3/4' as const, transpose: 2 },
+    marks: { edits: { 3: { semitones: -1 } }, chords: { 0: 'D' }, lyrics: { 0: 'Joy-' } },
+    clickBpm: 120,
+  };
+
+  it('carries a tune through a link and back to the same score', async () => {
+    const payload = await encodeTune(tune);
+    expect(payload).toMatch(/^z\.[A-Za-z0-9_-]+$/);
+    expect(payload.length).toBeLessThan(600);
+    const back = await decodeTune(payload);
+    expect(back).toMatchObject({ title: tune.title, settings: tune.settings, marks: tune.marks, clickBpm: 120 });
+    const extras = { ...tune.marks, clickBpm: 120 };
+    expect(arrange(back!.notes, back!.settings, extras).score).toEqual(arrange(notes, tune.settings, extras).score);
+  });
+
+  it('turns away anything that is not a tune', async () => {
+    expect(await decodeTune('')).toBeNull();
+    expect(await decodeTune('z.not-a-tune')).toBeNull();
+    expect(await decodeTune(`j.${btoa(JSON.stringify({ v: 1, n: [0, 100] }))}`)).toBeNull();
+    expect(await decodeTune(`j.${btoa(JSON.stringify({ v: 1, n: [0, 100, 999] }))}`)).toBeNull();
+    // settings and marks from a link are checked like stored ones
+    const odd = await decodeTune(`j.${btoa(JSON.stringify({ v: 1, n: [0, 100, 60], s: { tempo: 9999, feel: 'odd' }, m: 'x' }))}`);
+    expect(odd?.settings).toMatchObject({ tempo: 240, feel: 'straight' });
+    expect(odd?.marks).toEqual({ edits: {}, chords: {}, lyrics: {} });
   });
 });
 

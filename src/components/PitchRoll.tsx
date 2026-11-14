@@ -186,7 +186,8 @@ export default function PitchRoll({ live, take, activeEvent }: Props) {
       return;
     }
 
-    const [lo, hi] = pitchRange(take.contour);
+    // a tune that came as a link has its notes but no trace of how they were sung
+    const [lo, hi] = pitchRange(take.contour.length > 0 ? take.contour : take.notes.map((n) => n.midi));
     const y = prepare(lo, hi);
     const pxPerSecond = (cssWidth - GUTTER) / Math.max(take.duration, 0.001);
     const x = (seconds: number) => GUTTER + seconds * pxPerSecond;

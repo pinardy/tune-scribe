@@ -496,6 +496,102 @@ progress::-moz-progress-bar {
   align-self: flex-start;
 }
 
+/* ---- saved tunes ---- */
+
+.library {
+  border-top: 1px solid var(--rule);
+}
+
+.library summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.library summary span {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--control);
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.library ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 264px;
+  margin: 0 0 4px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.library li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.library-open {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  justify-content: center;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.library-open:hover:not(:disabled) {
+  background: var(--control);
+}
+
+.library-open[aria-current] {
+  border-color: var(--edge);
+  background: var(--sheet);
+}
+
+.library-open:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.library-open strong,
+.library-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-open strong {
+  font-family: var(--font-engraved);
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.library-open span {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.library .tool {
+  border-color: transparent;
+  background: transparent;
+}
+
 .message {
   font-size: 0.875rem;
   color: var(--ink-soft);

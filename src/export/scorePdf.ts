@@ -2,7 +2,7 @@
 // canvas with VexFlow's canvas backend, and handed to the PDF writer as
 // greyscale images. Lives in the notation chunk; load it with import().
 
-import { Renderer } from 'vexflow/bravura';
+import { Renderer } from 'vexflow/core';
 import { SYSTEM_GAP, drawSystems, layoutScore, systemHeight } from '../notation/renderScore';
 import type { Score } from '../transcribe/score';
 import { A4, LETTER, buildPdf, type PageSize, type PdfPage } from './pdf';

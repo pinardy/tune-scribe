@@ -22,7 +22,8 @@ import {
   StaveTie,
   Tuplet,
   Voice,
-} from 'vexflow/bravura';
+} from 'vexflow/core';
+import './fonts';
 import type { Score, ScoreItem } from '../transcribe/score';
 import { chordLabel } from '../transcribe/marks';
 import { letterIndex, vexKey, vexKeySignature } from './theory';

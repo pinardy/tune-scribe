@@ -8,8 +8,8 @@ export default defineConfig({
   // (GitHub Pages project sites, an nginx location block, …) without edits.
   base: './',
   build: {
-    // the notation chunk is VexFlow plus its embedded music fonts (~390 kB gzipped), loaded lazily
-    chunkSizeWarningLimit: 800,
+    // the notation chunk is VexFlow (its fonts are separate files now), loaded lazily
+    chunkSizeWarningLimit: 500,
     // Small assets are normally inlined as data: URLs. The recorder worklet
     // must stay a real file: audioWorklet.addModule() fetches it by URL, and
     // a same-origin file works under any Content-Security-Policy.
@@ -24,8 +24,6 @@ export default defineConfig({
         // the recorder worklet and the UI font are fetched at runtime, so they
         // must be precached for the app to record and render offline
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        // the notation chunk carries VexFlow's embedded music fonts
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       manifest: {
         name: 'Tune Scribe — melody to sheet music',

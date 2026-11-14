@@ -1,7 +1,7 @@
 // Plays the written score (so it can be checked by ear) and the original
-// recording (so the two can be compared). The score's voice is a small
-// synthesised piano: a struck, decaying tone tells repeated notes apart and
-// is easier on the ear than a bare oscillator, with no samples to download.
+// recording (so the two can be compared). The score's voice is a sampled
+// piano (piano.ts); a small synthesised one stands in while the samples are
+// on their way, and when they cannot be had at all.
 
 import { midiToHz } from '../notation/theory';
 import { swungUnits } from '../transcribe/feel';
@@ -9,6 +9,7 @@ import type { Score } from '../transcribe/score';
 import { performance as performanceOf } from '../transcribe/score';
 import type { NoteEvent } from '../transcribe/segment';
 import type { Recording } from './capture';
+import { pianoReady, preparePiano, strikeSample } from './piano';
 
 export interface Playback {
   stop(): void;
@@ -23,7 +24,20 @@ export async function audioContext(): Promise<AudioContext> {
   return ctx;
 }
 
-/** Strength of each harmonic of the piano voice, fundamental first. */
+/** how long a play waits for the piano samples before going ahead with the synthesised voice */
+const PIANO_WAIT_MS = 1500;
+
+/** Gets the sampled piano ready if it can be done in reasonable time. */
+function awaitPiano(audio: AudioContext): Promise<unknown> {
+  return Promise.race([preparePiano(audio), new Promise((resolve) => window.setTimeout(resolve, PIANO_WAIT_MS))]);
+}
+
+/** One note in the score's voice: the sampled piano if it is ready, the synthesised one if not. */
+function strike(audio: AudioContext, output: AudioNode, midi: number, t0: number, held: number): AudioScheduledSourceNode[] {
+  return pianoReady(audio) ? [strikeSample(audio, output, midi, t0, held)] : strikeSynth(audio, output, midi, t0, held);
+}
+
+/** Strength of each harmonic of the synthesised voice, fundamental first. */
 const PARTIALS = [1, 0.55, 0.3, 0.22, 0.12, 0.08, 0.05, 0.03, 0.02, 0.012];
 let pianoWave: { audio: AudioContext; wave: PeriodicWave } | null = null;
 
@@ -32,7 +46,7 @@ let pianoWave: { audio: AudioContext; wave: PeriodicWave } | null = null;
  * as the note rings, dying away faster the higher it is, damped at `t0 + held`.
  * Returns the oscillators, so the note can be cut short.
  */
-function strike(audio: AudioContext, output: AudioNode, midi: number, t0: number, held: number): OscillatorNode[] {
+function strikeSynth(audio: AudioContext, output: AudioNode, midi: number, t0: number, held: number): OscillatorNode[] {
   if (pianoWave?.audio !== audio) {
     const wave = audio.createPeriodicWave(new Float32Array(PARTIALS.length + 1), new Float32Array([0, ...PARTIALS]));
     pianoWave = { audio, wave };
@@ -81,6 +95,8 @@ function tick(audio: AudioContext, output: AudioNode, at: number, downbeat: bool
 /** Sounds one short note in the score's voice: the answer to "what did that edit do?" */
 export async function playTone(midi: number): Promise<void> {
   const audio = await audioContext();
+  // no waiting here: the note should answer the tap
+  void preparePiano(audio);
   const output = audio.createGain();
   output.gain.value = 0.3;
   output.connect(audio.destination);
@@ -141,6 +157,7 @@ export async function playScore(
   { speed = 1, click = false }: ScorePlayOptions = {},
 ): Promise<Playback> {
   const audio = await audioContext();
+  await awaitPiano(audio);
   const unit = 60 / score.bpm / 4 / speed;
   const timeOf = (units: number) => (score.swing ? swungUnits(units) : units);
   const startTime = audio.currentTime + 0.08;
@@ -148,7 +165,7 @@ export async function playScore(
   master.gain.value = 0.3;
   master.connect(audio.destination);
 
-  const oscillators: OscillatorNode[] = [];
+  const oscillators: AudioScheduledSourceNode[] = [];
   const spans: { index: number; from: number; to: number }[] = [];
   for (const note of performanceOf(score)) {
     const from = timeOf(note.startUnits) * unit;

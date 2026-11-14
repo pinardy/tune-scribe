@@ -21,9 +21,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       workbox: {
-        // the recorder worklet and the UI font are fetched at runtime, so they
-        // must be precached for the app to record and render offline
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // the recorder worklet, the fonts and the piano samples are fetched at
+        // runtime, so they must be precached for the app to work offline
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp3}'],
       },
       manifest: {
         name: 'Tune Scribe — melody to sheet music',

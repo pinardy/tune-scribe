@@ -35,10 +35,12 @@ function fallback(): TempoEstimate {
  * fits, but timing jitter costs it more, so the maximum sits on the right one.
  *
  * @param thirds  the beat may be cut in three (swing, triplets), so the step may be a third of it
+ * @param breaks  true for each onset that begins a take added later: the wait before it is not rhythm
  */
-export function estimateTempo(onsets: number[], thirds = false): TempoEstimate {
+export function estimateTempo(onsets: number[], thirds = false, breaks: boolean[] = []): TempoEstimate {
   const intervals: number[] = [];
   for (let i = 1; i < onsets.length; i++) {
+    if (breaks[i]) continue;
     const ioi = onsets[i] - onsets[i - 1];
     // long pauses say little about the pulse and drift too far to be trusted
     if (ioi > 0.05 && ioi < 2.5) intervals.push(ioi);
@@ -47,11 +49,14 @@ export function estimateTempo(onsets: number[], thirds = false): TempoEstimate {
 
   let bestQ = 0;
   let bestScore = -Infinity;
-  for (let q = 0.09; q <= 0.75; q *= 1.004) {
+  // From the longest step down, and a shorter one has to fit clearly better to
+  // win: playing in perfect time (a sequencer's) fits every division of the
+  // right step equally well, and the right one is the longest of them.
+  for (let q = 0.75; q >= 0.09; q /= 1.004) {
     let sum = 0;
     for (const ioi of intervals) sum += Math.cos((2 * Math.PI * ioi) / q);
     const score = sum / intervals.length;
-    if (score > bestScore) {
+    if (score > bestScore + 0.002) {
       bestScore = score;
       bestQ = q;
     }

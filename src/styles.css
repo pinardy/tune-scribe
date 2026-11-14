@@ -1,0 +1,1137 @@
+/*
+  Tune Scribe
+  The page is a desk; the one bright surface on it is the sheet. Colours come
+  from the things around written music: cool manuscript paper, blue-black ink,
+  a yellow highlighter for "you are here", and red only for recording.
+*/
+
+:root {
+  color-scheme: light;
+  --paper: #f3f5f1; /* the desk */
+  --sheet: #ffffff; /* the page */
+  --ink: #17233b;
+  --ink-soft: #566178;
+  --rule: #d3d9d1;
+  --edge: #b3bcc2; /* button outlines */
+  --control: #e7ebe4;
+  --record: #cf2e3d;
+  --marker: #ffd83d;
+  --trace: #0b8480;
+  --focus: #2b6be4;
+  --on-ink: #ffffff;
+  --note-fill: rgba(23, 35, 59, 0.14);
+  --sheet-shadow: 0 1px 2px rgba(23, 35, 59, 0.08), 0 14px 34px -14px rgba(23, 35, 59, 0.28);
+  /* the staff: VexFlow reads these at render time */
+  --staff-line: #17233b;
+  --staff-ink: #17233b;
+  --staff-cursor: rgba(255, 216, 61, 0.6);
+  --staff-sounding: #17233b;
+
+  --font-ui: 'Instrument Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Academico arrives with VexFlow; the fallbacks are its Century Schoolbook relatives */
+  --font-engraved: 'Academico', 'Century Schoolbook', 'New Century Schoolbook', 'TeX Gyre Schola', Georgia, serif;
+}
+
+/* Dark theme: follows the system unless data-theme pins it */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --paper: #10182a;
+    --sheet: #1a2439;
+    --ink: #e9edf5;
+    --ink-soft: #9ba7bf;
+    --rule: #2e3a54;
+    --edge: #4a5875;
+    --control: #243049;
+    --record: #ff5d6c;
+    --marker: #f2c61f;
+    --trace: #4fcfc8;
+    --focus: #7fa8ff;
+    --on-ink: #10182a;
+    --note-fill: rgba(233, 237, 245, 0.18);
+    --sheet-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 34px -14px rgba(0, 0, 0, 0.7);
+    --staff-line: #aeb8cc;
+    --staff-ink: #e9edf5;
+    --staff-cursor: rgba(242, 198, 31, 0.3);
+    --staff-sounding: #ffe27a;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #10182a;
+  --sheet: #1a2439;
+  --ink: #e9edf5;
+  --ink-soft: #9ba7bf;
+  --rule: #2e3a54;
+  --edge: #4a5875;
+  --control: #243049;
+  --record: #ff5d6c;
+  --marker: #f2c61f;
+  --trace: #4fcfc8;
+  --focus: #7fa8ff;
+  --on-ink: #10182a;
+  --note-fill: rgba(233, 237, 245, 0.18);
+  --sheet-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 34px -14px rgba(0, 0, 0, 0.7);
+  --staff-line: #aeb8cc;
+  --staff-ink: #e9edf5;
+  --staff-cursor: rgba(242, 198, 31, 0.3);
+  --staff-sounding: #ffe27a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ---- frame ---- */
+
+.app {
+  min-height: 100dvh;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px))
+    calc(28px + env(safe-area-inset-bottom, 0px)) calc(16px + env(safe-area-inset-left, 0px));
+}
+
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.masthead h1 {
+  font-family: var(--font-engraved);
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: 0.01em;
+}
+
+.icon-button {
+  width: 44px;
+  height: 44px;
+  margin-right: -8px; /* the glyph, not the hit area, lines up with the page edge */
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--control);
+}
+
+/* One column on a phone, in the order you use it: capture, what was heard,
+   the sheet, then the notation settings. The rail's children are laid out
+   directly so the sheet can sit between them. */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.rail {
+  display: contents;
+}
+
+.capture {
+  order: 1;
+}
+.heard {
+  order: 2;
+}
+.desk {
+  order: 3;
+  min-width: 0;
+}
+.settings {
+  order: 4;
+}
+
+@media (min-width: 940px) {
+  .workspace {
+    display: grid;
+    grid-template-columns: 340px minmax(0, 1fr);
+    gap: 32px;
+    align-items: start;
+  }
+
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    position: sticky;
+    top: 16px;
+  }
+}
+
+h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* ---- buttons ---- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgba(23, 35, 59, 0.06);
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    transform 0.08s ease;
+}
+
+.button,
+.record,
+.icon-button,
+.segmented button,
+.stepper button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.button:active:not(:disabled),
+.record:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.icon {
+  flex: none;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--control);
+}
+
+.button.is-primary,
+.button[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+.button.is-primary:hover:not(:disabled) {
+  background: var(--ink);
+  opacity: 0.88;
+}
+
+.button:disabled,
+.record:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* ---- capture ---- */
+
+.capture {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.capture-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* the one control everyone recognises: a red dot that becomes a square */
+.record {
+  position: relative;
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--sheet);
+  box-shadow: var(--sheet-shadow);
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.record-glyph {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--record);
+  transition:
+    border-radius 0.15s ease,
+    width 0.15s ease,
+    height 0.15s ease;
+}
+
+.record.is-recording {
+  border-color: var(--record);
+}
+
+.record.is-recording .record-glyph {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+}
+
+.record.is-recording::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--record);
+  border-radius: 50%;
+  animation: ring 1.6s ease-out infinite;
+}
+
+@keyframes ring {
+  from {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.capture-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.capture-main {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.capture-sub {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}
+
+.clock {
+  font-variant-numeric: tabular-nums;
+}
+
+.hearing {
+  font-family: var(--font-engraved);
+  font-size: 1.375rem;
+  font-weight: 400;
+}
+
+.hearing small {
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+progress {
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--control);
+  accent-color: var(--ink);
+  overflow: hidden;
+}
+
+progress::-webkit-progress-bar {
+  background: var(--control);
+}
+
+progress::-webkit-progress-value {
+  background: var(--ink);
+}
+
+progress::-moz-progress-bar {
+  background: var(--ink);
+}
+
+.count-in strong {
+  font-family: var(--font-engraved);
+  font-size: 1.375rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* advice about the input level: it wants acting on before the take is over */
+.capture-sub.is-advice {
+  color: var(--record);
+  font-weight: 550;
+}
+
+/* ---- the click to record against ---- */
+
+.click {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.click-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.switch input {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  border: 1px solid var(--edge);
+  border-radius: 13px;
+  background: var(--control);
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px rgba(23, 35, 59, 0.3);
+  transition: transform 0.12s ease;
+}
+
+.switch input:checked {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.switch input:checked::after {
+  transform: translateX(18px);
+}
+
+.switch input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.click .stepper {
+  width: 148px;
+}
+
+.start-over {
+  align-self: flex-start;
+}
+
+.message {
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.message.is-error {
+  padding: 10px 12px;
+  border-left: 3px solid var(--record);
+  background: var(--control);
+  color: var(--ink);
+}
+
+/* ---- what was heard ---- */
+
+.heard-head,
+.settings-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.heard-meta {
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  text-align: right;
+}
+
+.roll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--sheet);
+  scrollbar-width: thin;
+}
+
+.roll canvas {
+  display: block;
+}
+
+/* ---- settings ---- */
+
+.field {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 6px 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.field-label {
+  padding-top: 8px;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+
+.field-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.field-note {
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--control);
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmented button {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--sheet);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(23, 35, 59, 0.18);
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: 40px 36px minmax(0, 1fr) 36px 40px;
+  gap: 4px;
+}
+
+.stepper.is-short {
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+}
+
+.stepper output {
+  display: grid;
+  place-items: center;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepper button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.stepper button,
+.stepper input,
+.settings select {
+  min-height: 36px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--sheet);
+}
+
+.stepper button {
+  padding: 0;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.stepper button:hover {
+  background: var(--control);
+}
+
+.stepper input {
+  width: 100%;
+  padding: 0 6px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.stepper input::-webkit-inner-spin-button,
+.stepper input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.settings select {
+  width: 100%;
+  padding: 0 8px;
+  font-size: 0.875rem;
+}
+
+/* fingers: full-size targets, and 16px text in the select so iOS doesn't zoom on focus */
+@media (pointer: coarse) {
+  .segmented button {
+    min-height: 42px;
+  }
+
+  .stepper {
+    grid-template-columns: 44px 44px minmax(0, 1fr) 44px 44px;
+  }
+
+  .stepper.is-short {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+
+  .stepper button,
+  .stepper input,
+  .settings select {
+    min-height: 44px;
+  }
+
+  .settings select {
+    font-size: 1rem;
+  }
+}
+
+/* a narrow phone: the label goes above its control, which takes the full width */
+@media (max-width: 479px) {
+  .field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .field-label {
+    padding-top: 0;
+  }
+}
+
+/* ---- the sheet ---- */
+
+.sheet {
+  scroll-margin-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding: 22px 14px 18px;
+  border-radius: 3px;
+  background: var(--sheet);
+  box-shadow: var(--sheet-shadow);
+}
+
+@media (min-width: 600px) {
+  .sheet {
+    padding: 34px 32px 28px;
+  }
+}
+
+/* an engraved edition's heading: centred title, the key beneath it */
+.sheet-title {
+  display: block;
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-engraved);
+  font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2.125rem);
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+}
+
+.sheet-title:hover,
+.sheet-title:focus {
+  border-bottom-color: var(--rule);
+}
+
+.sheet-title:focus-visible {
+  outline: 0;
+  border-bottom-color: var(--focus);
+}
+
+.sheet-key {
+  margin-top: 2px;
+  margin-bottom: 14px;
+  font-family: var(--font-engraved);
+  font-size: 1rem;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.sheet-loading {
+  padding: 40px 0;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.score-view {
+  width: 100%;
+}
+
+.score-canvas {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.score-canvas svg {
+  display: block;
+}
+
+.score-cursor {
+  fill: var(--staff-cursor);
+  stroke: none;
+}
+
+/* the sounding note: CSS wins over the fill/stroke attributes VexFlow writes
+   (and, said twice, over the colour of a note picked for correcting) */
+.score-canvas .is-sounding.is-sounding,
+.score-canvas .is-sounding.is-sounding * {
+  fill: var(--staff-sounding);
+  stroke: var(--staff-sounding);
+}
+
+/* a note can be picked for correcting */
+.score-canvas [data-event] {
+  cursor: pointer;
+}
+
+.score-canvas .is-selected,
+.score-canvas .is-selected * {
+  fill: var(--focus);
+  stroke: var(--focus);
+}
+
+/* the tap target laid over each note: never painted, whatever the note's state */
+.score-canvas .score-hit {
+  fill: none !important;
+  stroke: none !important;
+}
+
+.sheet-hint {
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.sheet-hint .link {
+  font-size: inherit;
+}
+
+.sheet-empty {
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.sheet-empty h2 {
+  margin-bottom: 10px;
+  font-family: var(--font-engraved);
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.sheet-empty p {
+  margin-bottom: 12px;
+  color: var(--ink-soft);
+}
+
+.sheet-empty .button {
+  margin-top: 6px;
+}
+
+/* a blank sheet is manuscript paper: empty five-line staves waiting below the text */
+.sheet.is-blank::after {
+  content: '';
+  display: block;
+  height: 232px;
+  margin-top: 34px;
+  background: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 9px);
+  -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 37px, transparent 37px 99px);
+  mask-image: repeating-linear-gradient(to bottom, #000 0 37px, transparent 37px 99px);
+}
+
+/* ---- transport ---- */
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 24px;
+  margin-top: 16px;
+}
+
+.transport-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- correcting a note ---- */
+
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 100%;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--sheet);
+  box-shadow: var(--sheet-shadow);
+}
+
+.note-editor-head,
+.note-editor-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-editor-tools {
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 14px;
+}
+
+/* a pair of tools under the name of what they change */
+.tool-group {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.note-editor-what {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-editor-what strong {
+  margin-right: 4px;
+  color: var(--ink);
+  font-family: var(--font-engraved);
+  font-size: 1.25rem;
+  font-weight: 400;
+}
+
+.note-editor-head .button {
+  min-height: 40px;
+  margin-left: 4px;
+}
+
+.tool-group > span {
+  grid-column: 1 / -1;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.tool-group.is-last {
+  display: flex;
+  gap: 12px;
+}
+
+.tool {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--sheet);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tool:hover:not(:disabled) {
+  background: var(--control);
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.note-editor-head .tool {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* the narrowest phones: everything a little closer so the tools stay on one line */
+@media (max-width: 379px) {
+  .note-editor {
+    padding: 10px 10px 12px;
+  }
+
+  .note-editor-tools {
+    gap: 8px;
+  }
+
+  .tool {
+    width: 38px;
+  }
+
+  .tool-group {
+    column-gap: 6px;
+  }
+
+  .tool-group.is-last {
+    gap: 6px;
+  }
+}
+
+/* One column: the play buttons ride the bottom of the screen for as long as
+   the sheet is in view, and the exports share a row beneath it. */
+@media (max-width: 939px) {
+  /* nothing to show yet; the space goes to the sheet's introduction */
+  .heard.is-idle {
+    display: none;
+  }
+
+  .transport {
+    display: contents;
+  }
+
+  .note-editor {
+    position: sticky;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 2;
+    margin: 14px 0 10px;
+  }
+
+  .transport-play {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding: 16px 0 calc(10px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to bottom, transparent, var(--paper) 16px);
+  }
+
+  .transport-group {
+    flex-wrap: nowrap;
+  }
+
+  .transport-group .button {
+    flex: 1;
+    min-width: 0;
+    padding: 0 10px;
+  }
+
+  /* the exports in even rows: three across, or two and two, or two over three */
+  .transport-save {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .transport-save .button {
+    grid-column: span 2;
+    gap: 6px;
+    padding: 0 6px;
+    font-size: 0.9375rem;
+  }
+
+  .transport-save .button:first-child:nth-last-child(4),
+  .transport-save .button:first-child:nth-last-child(4) ~ .button,
+  .transport-save .button:first-child:nth-last-child(5),
+  .transport-save .button:first-child:nth-last-child(5) + .button {
+    grid-column: span 3;
+  }
+}
+
+@media (max-width: 379px) {
+  .transport-save .icon {
+    display: none;
+  }
+
+  .transport-play .button {
+    gap: 6px;
+    padding: 0 6px;
+    font-size: 0.9375rem;
+  }
+}
+
+/* ---- drag and drop ---- */
+
+.drop-hint {
+  position: fixed;
+  inset: 12px;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--ink);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  font-size: 1.25rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record.is-recording::after {
+    animation: none;
+  }
+
+  .record-glyph,
+  .record,
+  .button,
+  .switch input,
+  .switch input::after {
+    transition: none;
+  }
+}
+
+/* ---- print: just the sheet, in black on white ---- */
+
+@media print {
+  /* repeats the dark-theme selectors so these win whichever theme is on screen */
+  :root,
+  :root:not([data-theme='light']),
+  :root[data-theme='dark'] {
+    color-scheme: light;
+    --paper: #fff;
+    --sheet: #fff;
+    --ink: #000;
+    --ink-soft: #333;
+  }
+
+  .masthead,
+  .rail,
+  .transport,
+  .note-editor,
+  .sheet-hint,
+  .drop-hint,
+  .score-cursor {
+    display: none !important;
+  }
+
+  .app {
+    max-width: none;
+    padding: 0;
+  }
+
+  .workspace {
+    display: block;
+  }
+
+  /* the width ScoreView re-sets the score at for print (PRINT_WIDTH) */
+  .sheet {
+    width: 660px;
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  .sheet-title {
+    border-bottom-color: transparent !important;
+  }
+
+  .score-canvas {
+    overflow: visible;
+  }
+
+  /* a dark-theme score is drawn in pale ink; put it back to black for paper */
+  .score-canvas svg [fill]:not([fill='none']) {
+    fill: #000;
+  }
+
+  .score-canvas svg [stroke]:not([stroke='none']) {
+    stroke: #000;
+  }
+}

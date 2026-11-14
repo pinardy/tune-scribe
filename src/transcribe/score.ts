@@ -2,6 +2,7 @@
 // Everything is measured in sixteenth-note units.
 
 import type { Key, SpelledNote } from '../notation/theory';
+import { enharmonic } from '../notation/theory';
 import { isWholeUnits, snapUnits } from './feel';
 import { spellInKey } from './key';
 import type { QuantNote } from './quantize';
@@ -163,7 +164,8 @@ export function buildScore(notes: QuantNote[], key: Key, meter: Meter, clef: Cle
   const THIRD = 4 / 3;
 
   const emit = (from: number, to: number, note: QuantNote | null, nextMidi?: number) => {
-    const pitch = note ? spellInKey(note.midi, key, nextMidi) : undefined;
+    const inKey = note ? spellInKey(note.midi, key, nextMidi) : undefined;
+    const pitch = inKey && note?.respell ? (enharmonic(inKey) ?? inKey) : inKey;
     const push = (measure: Measure, units: number, value: { duration: DurationName; dotted: boolean }, last: boolean, tuplet = false) => {
       measure.items.push(
         note
@@ -237,6 +239,19 @@ export function chooseClef(midis: number[]): Clef {
   return sorted[sorted.length >> 1] < 57 ? 'bass' : 'treble';
 }
 
+/**
+ * What a rest goes by when it is picked on the score, where a note goes by
+ * its eventIndex: a negative number made from where the rest starts.
+ */
+export function restId(startUnits: number): number {
+  return -1 - Math.round(startUnits * 3);
+}
+
+/** Bars `from` to `to` (both counted from 0, both included) as a score of their own, for playing a passage. */
+export function passageOf(score: Score, from: number, to: number): Score {
+  return { ...score, measures: score.measures.slice(from, to + 1) };
+}
+
 /** One sounding note of the score, with ties folded back together. */
 export interface PerformedNote {
   eventIndex: number;
@@ -246,7 +261,6 @@ export interface PerformedNote {
   lengthUnits: number;
 }
 
-/** The score as a player would perform it: tied noteheads joined, rests as gaps. */
 /** The bars in the order they are played, each repeated passage taken twice. */
 export function playOrder(score: Score): number[] {
   const order: number[] = [];
@@ -264,6 +278,7 @@ export function playOrder(score: Score): number[] {
   return order;
 }
 
+/** The score as a player would perform it: tied noteheads joined, rests as gaps. */
 export function performance(score: Score): PerformedNote[] {
   const out: PerformedNote[] = [];
   let cursor = 0;

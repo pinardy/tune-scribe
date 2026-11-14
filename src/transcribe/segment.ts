@@ -13,6 +13,8 @@ export interface NoteEvent {
   cents: number;
   /** mean RMS level */
   level: number;
+  /** the first note of a take added to the tune later: it is written from a bar line */
+  section?: true;
 }
 
 export interface Segmentation {

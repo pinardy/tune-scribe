@@ -30,6 +30,16 @@ export function spell(letter: Letter, acc: Acc, octave: number): SpelledNote {
   return { letter, acc, octave, midi };
 }
 
+/** The same pitch under its other name: F♯ for G♭, F for E♯. Null for a natural, which is left as it is. */
+export function enharmonic(n: SpelledNote): SpelledNote | null {
+  if (!n.acc) return null;
+  const letter = LETTERS[(LETTERS.indexOf(n.letter) + (n.acc === '#' ? 1 : 6)) % 7];
+  const off = ((((n.midi - LETTER_SEMITONE[letter]) % 12) + 18) % 12) - 6;
+  const acc: Acc | null = off === 0 ? '' : off === 1 ? '#' : off === -1 ? 'b' : null;
+  if (acc === null) return null;
+  return spell(letter, acc, Math.floor((n.midi - ACC_OFFSET[acc]) / 12) - 1);
+}
+
 /** VexFlow key string, e.g. "c#/5" */
 export function vexKey(n: SpelledNote): string {
   return `${n.letter.toLowerCase()}${n.acc}/${n.octave}`;

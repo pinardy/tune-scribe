@@ -2,7 +2,7 @@
 // (The listening half — audio to played notes — is pitchTrack + segment.)
 
 import type { Key } from '../notation/theory';
-import { applyEdits, type NoteEdits } from './edits';
+import { applyEdits, type AddedNotes, type NoteEdits } from './edits';
 import { estimateKey } from './key';
 import { annotate, type NoteTexts, type Repeats } from './marks';
 import { suggestMeter, type MeterSuggestion } from './meter';
@@ -17,6 +17,8 @@ export interface Arrangement {
   score: Score;
   /** the rhythm grid the notes were placed on, in units; a length edit moves by this much */
   stepUnits: number;
+  /** semitones the score is written above the sounding pitch */
+  transpose: number;
   /** what was worked out from the playing, whether or not a setting overrides it */
   detected: {
     bpm: number;
@@ -31,6 +33,8 @@ export interface Arrangement {
 export interface ArrangeExtras {
   /** hand corrections to individual notes */
   edits?: NoteEdits;
+  /** notes written in by hand where none was heard */
+  added?: AddedNotes;
   /** chord symbols and lyrics, by the note they sit on */
   chords?: NoteTexts;
   lyrics?: NoteTexts;
@@ -46,6 +50,7 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   const heard = estimateTempo(
     notes.map((n) => n.start),
     feel !== 'straight',
+    notes.map((n) => !!n.section),
   );
   // a take played to a click has a known tempo, on whatever grid the settings ask for
   const tempo = extras.clickBpm
@@ -62,9 +67,10 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   );
 
   const leadIn = (settings.startBeat - 1) * meter.beatUnits;
-  const placed = quantize(notes, unitSeconds, stepUnits, leadIn, meter.beatUnits, feel);
-  const transposed = settings.transpose ? placed.map((n) => ({ ...n, midi: n.midi + settings.transpose })) : placed;
-  const quantised = extras.edits ? applyEdits(transposed, extras.edits, stepUnits) : transposed;
+  const placed = quantize(notes, unitSeconds, stepUnits, leadIn, meter.beatUnits, feel, meter.barUnits);
+  // corrections are kept at sounding pitch, so a change of transposition carries them along
+  const edited = extras.edits || extras.added ? applyEdits(placed, extras.edits ?? {}, stepUnits, extras.added) : placed;
+  const quantised = settings.transpose ? edited.map((n) => ({ ...n, midi: n.midi + settings.transpose })) : edited;
 
   const detectedKey = estimateKey(quantised.map((n) => ({ midi: n.midi, weight: n.length })));
   const key = settings.key === 'auto' ? detectedKey : settings.key;
@@ -78,6 +84,7 @@ export function arrange(notes: NoteEvent[], settings: ScribeSettings, extras: Ar
   return {
     score,
     stepUnits,
+    transpose: settings.transpose,
     detected: {
       bpm: tempo.bpm,
       tempoConfidence: tempo.confidence,

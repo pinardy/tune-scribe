@@ -2,8 +2,19 @@
 // symbols and lyrics attached to notes. This is the part of a tune that has
 // an undo history and is stored and shared with it.
 
-import type { NoteEdits } from './edits';
-import { sanitizeEdits } from './edits';
+import type { AddedNotes, NoteEdits } from './edits';
+import {
+  MAX_MIDI,
+  MIN_MIDI,
+  addedId,
+  isAdded,
+  isSplitHalf,
+  sanitizeAdded,
+  sanitizeEdits,
+  splitHalf,
+  splitWhole,
+  withEdit,
+} from './edits';
 import type { Score } from './score';
 
 /** Text by the index of the played note it belongs to. */
@@ -11,6 +22,8 @@ export type NoteTexts = Record<number, string>;
 
 export interface Marks {
   edits: NoteEdits;
+  /** notes written in where only a rest was heard */
+  added: AddedNotes;
   /** chord symbols as typed: "Am", "Bb7", "F#m7" */
   chords: NoteTexts;
   /** one syllable to a note; a trailing hyphen means the word carries on */
@@ -22,7 +35,7 @@ export interface Marks {
 /** Whether the bar a note is in opens a repeated passage, closes one, or both. */
 export type Repeats = Record<number, { start?: true; end?: true }>;
 
-export const NO_MARKS: Marks = { edits: {}, chords: {}, lyrics: {}, repeats: {} };
+export const NO_MARKS: Marks = { edits: {}, added: {}, chords: {}, lyrics: {}, repeats: {} };
 
 export const MAX_CHORD_LENGTH = 16;
 export const MAX_LYRIC_LENGTH = 32;
@@ -76,9 +89,71 @@ export function sanitizeMarks(stored: unknown): Marks {
   const s = (stored && typeof stored === 'object' ? stored : {}) as Partial<Record<keyof Marks, unknown>>;
   return {
     edits: sanitizeEdits(s.edits),
+    added: sanitizeAdded(s.added),
     chords: sanitizeTexts(s.chords, MAX_CHORD_LENGTH),
     lyrics: sanitizeTexts(s.lyrics, MAX_LYRIC_LENGTH),
     repeats: sanitizeRepeats(s.repeats),
+  };
+}
+
+/** `marks` with one note, heard or added, moved by `semitones`. */
+export function withPitch(marks: Marks, eventIndex: number, semitones: number): Marks {
+  if (!isAdded(eventIndex)) {
+    return { ...marks, edits: withEdit(marks.edits, eventIndex, (e) => ({ ...e, semitones: (e.semitones ?? 0) + semitones })) };
+  }
+  const note = marks.added[addedId(eventIndex)];
+  if (!note) return marks;
+  const midi = Math.min(MAX_MIDI, Math.max(MIN_MIDI, note.midi + semitones));
+  return { ...marks, added: { ...marks.added, [addedId(eventIndex)]: { ...note, midi } } };
+}
+
+/** `marks` with one note taken off the score: a heard note is marked removed, an added one is forgotten. */
+export function withoutNote(marks: Marks, eventIndex: number): Marks {
+  if (!isAdded(eventIndex)) {
+    return { ...marks, edits: withEdit(marks.edits, eventIndex, (e) => ({ ...e, removed: true })) };
+  }
+  const added = { ...marks.added };
+  delete added[addedId(eventIndex)];
+  return {
+    ...marks,
+    added,
+    chords: withText(marks.chords, eventIndex, ''),
+    lyrics: withText(marks.lyrics, eventIndex, ''),
+    repeats: withRepeat(withRepeat(marks.repeats, eventIndex, 'start', false), eventIndex, 'end', false),
+  };
+}
+
+/**
+ * The marks after the played notes have been renumbered (a take trimmed, or
+ * its end recorded again). `to` gives a note's new index, or null if it is gone;
+ * what was marked on a note that is gone goes with it.
+ */
+export function remapMarks(marks: Marks, to: (eventIndex: number) => number | null): Marks {
+  const moved = (index: number): number | null => {
+    if (isAdded(index)) return index;
+    if (!isSplitHalf(index)) return to(index);
+    const whole = to(splitWhole(index));
+    return whole === null ? null : splitHalf(whole);
+  };
+  const rekey = <T,>(record: Record<number, T>): Record<number, T> => {
+    const out: Record<number, T> = {};
+    for (const [key, value] of Object.entries(record)) {
+      const index = moved(Number(key));
+      if (index !== null) out[index] = value;
+    }
+    return out;
+  };
+  const added: AddedNotes = {};
+  for (const [id, note] of Object.entries(marks.added)) {
+    const after = note.after < 0 ? -1 : to(note.after);
+    if (after !== null) added[Number(id)] = { ...note, after };
+  }
+  return {
+    edits: rekey(marks.edits),
+    added,
+    chords: rekey(marks.chords),
+    lyrics: rekey(marks.lyrics),
+    repeats: rekey(marks.repeats),
   };
 }
 

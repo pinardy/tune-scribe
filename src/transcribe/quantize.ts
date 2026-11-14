@@ -11,6 +11,8 @@ export interface QuantNote {
   start: number;
   /** written length in units */
   length: number;
+  /** written under its other name: G♭ where the key would say F♯ */
+  respell?: boolean;
 }
 
 /** A triplet eighth, in units. */
@@ -28,6 +30,7 @@ const THIRD = 4 / 3;
  * @param beatUnits    length of a beat in units; the last note is rounded up toward one
  * @param feel         swing stretches the grid to the long-short eighths; triplets adds
  *   the thirds of each beat to it. Both only where the beat is a quarter.
+ * @param barUnits     length of a bar in units; a note marked `section` goes on a bar line
  */
 export function quantize(
   notes: NoteEvent[],
@@ -36,6 +39,7 @@ export function quantize(
   leadInUnits = 0,
   beatUnits = 4,
   feel: Feel = 'straight',
+  barUnits = 16,
 ): QuantNote[] {
   if (notes.length === 0) return [];
   const swing = feel === 'swing' && beatUnits === 4;
@@ -75,7 +79,16 @@ export function quantize(
   const starts: number[] = [];
   const unitAt: number[] = [];
   for (let i = 0; i < notes.length; i++) {
-    if (i > 0) {
+    if (i > 0 && notes[i].section) {
+      // A take added later. How long the player waited before it says nothing about
+      // the rhythm: it starts on the bar line nearest to where the note before it
+      // stopped, and the tempo is followed afresh.
+      const before = notes[i - 1];
+      const stopped = reach(position, before.end - before.start, unit);
+      const nextBar = (Math.floor(position / barUnits + 1e-6) + 1) * barUnits;
+      position = Math.max(nextBar, Math.round(stopped / barUnits) * barUnits);
+      unit = unitSeconds;
+    } else if (i > 0) {
       const gap = notes[i].start - notes[i - 1].start;
       const next = reach(position, gap, unit);
       // short gaps are the reliable ones for following the tempo

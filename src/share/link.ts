@@ -51,7 +51,18 @@ export async function encodeTune(tune: SharedTune): Promise<string> {
     flat.push(start - previous, Math.max(1, Math.round((note.end - note.start) * 1000)), note.midi);
     previous = start;
   }
-  const json = JSON.stringify({ v: 1, t: tune.title, a: tune.composer || undefined, n: flat, s: tune.settings, m: tune.marks, c: tune.clickBpm });
+  // the notes that begin a take added later, by index
+  const sections = tune.notes.flatMap((note, i) => (note.section ? [i] : []));
+  const json = JSON.stringify({
+    v: 1,
+    t: tune.title,
+    a: tune.composer || undefined,
+    n: flat,
+    b: sections.length ? sections : undefined,
+    s: tune.settings,
+    m: tune.marks,
+    c: tune.clickBpm,
+  });
   const bytes = new TextEncoder().encode(json);
   if (typeof CompressionStream === 'undefined') return `j.${toBase64Url(bytes)}`;
   return `z.${toBase64Url(await through(new CompressionStream('deflate-raw'), bytes))}`;
@@ -81,6 +92,11 @@ export async function decodeTune(payload: string): Promise<SharedTune | null> {
       notes.push({ start: at / 1000, end: (at + (length as number)) / 1000, midi: midi as number, cents: 0, level: 0 });
     }
     if (notes.length === 0) return null;
+    if (Array.isArray(data.b)) {
+      for (const i of data.b as unknown[]) {
+        if (typeof i === 'number' && Number.isInteger(i) && i > 0 && i < notes.length) notes[i].section = true;
+      }
+    }
     return {
       title: typeof data.t === 'string' ? data.t.slice(0, MAX_TITLE_LENGTH) : '',
       composer: typeof data.a === 'string' ? data.a.slice(0, MAX_TITLE_LENGTH) : '',

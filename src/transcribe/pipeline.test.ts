@@ -8,12 +8,15 @@ import { toMusicXml } from '../export/musicxml';
 import { buildPdf } from '../export/pdf';
 import { midiToHz, spelledName } from '../notation/theory';
 import { decodeTune, encodeTune } from '../share/link';
-import { applyEdits, splitHalf, withEdit } from './edits';
+import { suggestChords } from './chords';
+import { addedIndex, applyEdits, splitHalf, withEdit } from './edits';
+import { NO_MARKS, remapMarks } from './marks';
+import { joinTakes, trimTake } from './splice';
 import { arrange } from './index';
 import { suggestMeter } from './meter';
 import { estimateKey, spellInKey } from './key';
 import { quantize } from './quantize';
-import { METERS, buildScore, performance, playOrder, splitSpan } from './score';
+import { METERS, buildScore, passageOf, performance, playOrder, splitSpan } from './score';
 import { segmentNotes } from './segment';
 import { DEFAULT_SETTINGS } from './settings';
 import { estimateTempo } from './tempo';
@@ -461,7 +464,7 @@ describe('share link', () => {
     notes,
     settings: { ...DEFAULT_SETTINGS, timeSignature: '3/4' as const, transpose: 2 },
     composer: 'L. van Beethoven',
-    marks: { edits: { 3: { semitones: -1 } }, chords: { 0: 'D' }, lyrics: { 0: 'Joy-' }, repeats: { 0: { start: true as const } } },
+    marks: { edits: { 3: { semitones: -1 } }, added: {}, chords: { 0: 'D' }, lyrics: { 0: 'Joy-' }, repeats: { 0: { start: true as const } } },
     clickBpm: 120,
   };
 
@@ -483,7 +486,7 @@ describe('share link', () => {
     // settings and marks from a link are checked like stored ones
     const odd = await decodeTune(`j.${btoa(JSON.stringify({ v: 1, n: [0, 100, 60], s: { tempo: 9999, feel: 'odd' }, m: 'x' }))}`);
     expect(odd?.settings).toMatchObject({ tempo: 240, feel: 'straight' });
-    expect(odd?.marks).toEqual({ edits: {}, chords: {}, lyrics: {}, repeats: {} });
+    expect(odd?.marks).toEqual({ edits: {}, added: {}, chords: {}, lyrics: {}, repeats: {} });
   });
 });
 
@@ -576,6 +579,146 @@ describe('LevelWatch', () => {
   });
 });
 
+describe('notes written in, and other names', () => {
+  // quarters on beats 1, 2 and 4: a rest on beat 3
+  const gapped = () => [60, 62, 65].map((midi, eventIndex) => ({ eventIndex, midi, start: [0, 4, 12][eventIndex], length: 4 }));
+
+  it('puts an added note in the rest it was written into, placed from the note before', () => {
+    const out = applyEdits(gapped(), {}, 2, { 0: { after: 1, offset: 4, length: 4, midi: 64 } });
+    expect(out.map((n) => [n.start, n.length, n.midi])).toEqual([[0, 4, 60], [4, 4, 62], [8, 4, 64], [12, 4, 65]]);
+    expect(out[2].eventIndex).toBe(addedIndex(0));
+    // it moves with the note it was placed from
+    const later = applyEdits(gapped(), { 0: { steps: 1 } }, 2, { 0: { after: 1, offset: 4, length: 4, midi: 64 } });
+    expect(later.map((n) => n.start)).toEqual([0, 6, 10, 14]);
+  });
+
+  it('gives an added note only the room there is', () => {
+    const long = applyEdits(gapped(), {}, 2, { 0: { after: 1, offset: 4, length: 12, midi: 64 } });
+    expect(long[2]).toMatchObject({ start: 8, length: 4 });
+    // on top of a heard note there is none
+    expect(applyEdits(gapped(), {}, 2, { 0: { after: 0, offset: 4, length: 4, midi: 64 } })).toHaveLength(3);
+    // before the first note, from the start of bar 1
+    const first = applyEdits(gapped().map((n) => ({ ...n, start: n.start + 4 })), {}, 2, { 3: { after: -1, offset: 0, length: 4, midi: 59 } });
+    expect(first[0]).toMatchObject({ start: 0, length: 4, midi: 59 });
+  });
+
+  it('writes a note under its other name when asked', () => {
+    const heard = [62, 66, 69].map((midi, i) => ({ start: i * 0.5, end: i * 0.5 + 0.45, midi, cents: 0, level: 0.1 }));
+    const settings = { ...DEFAULT_SETTINGS, tempo: 120, key: { tonic: 'D', mode: 'major' as const } };
+    const names = (edits = {}) =>
+      arrange(heard, settings, { edits }).score.measures.flatMap((m) => m.items.flatMap((item) => (item.pitch ? [spelledName(item.pitch)] : [])));
+    expect(names()).toEqual(['D4', 'F♯4', 'A4']);
+    expect(names({ 1: { respell: true } })).toEqual(['D4', 'G♭4', 'A4']);
+    // a natural has no other name here
+    expect(names({ 0: { respell: true } })).toEqual(['D4', 'F♯4', 'A4']);
+  });
+
+  it('keeps hand corrections at sounding pitch when the score is transposed', () => {
+    const heard = [60, 62].map((midi, i) => ({ start: i * 0.5, end: i * 0.5 + 0.45, midi, cents: 0, level: 0.1 }));
+    const { score } = arrange(heard, { ...DEFAULT_SETTINGS, tempo: 120, transpose: 2 }, { added: { 0: { after: 1, offset: 4, length: 4, midi: 64 } } });
+    expect(score.measures[0].items.filter((item) => item.pitch).map((item) => item.pitch!.midi)).toEqual([62, 64, 66]);
+  });
+});
+
+describe('takes cut and joined', () => {
+  const pcm = synthesiseDemo(22050);
+  const track = trackPitch(pcm, 22050);
+  const take = { source: 'Demo', analysis: { track, audio: { pcm, sampleRate: 22050 } }, heard: segmentNotes(track) };
+
+  it('trims a take, keeping sound, trace and notes in step', () => {
+    const from = take.heard.notes[4].start - 0.05;
+    const to = take.heard.notes[20].start - 0.01;
+    const { take: cut, indexOf } = trimTake(take, from, to);
+    expect(cut.heard.notes).toHaveLength(16);
+    expect(cut.heard.notes.map((n) => n.midi)).toEqual(take.heard.notes.slice(4, 20).map((n) => n.midi));
+    expect(cut.heard.notes[0].start).toBeCloseTo(0.05, 1);
+    expect([indexOf(3), indexOf(4), indexOf(19), indexOf(20)]).toEqual([null, 0, 15, null]);
+    expect(cut.analysis!.track.duration).toBeCloseTo(to - from, 1);
+    expect(cut.analysis!.track.midi.length).toBe(cut.heard.contour.length);
+    // the trimmed sound, heard afresh, gives the same notes
+    const again = segmentNotes(trackPitch(cut.analysis!.audio.pcm, 22050));
+    expect(again.notes.map((n) => n.midi)).toEqual(cut.heard.notes.map((n) => n.midi));
+  });
+
+  it('carries the marks over to the notes that are left', () => {
+    const { indexOf } = trimTake(take, take.heard.notes[4].start - 0.05, Infinity);
+    const marks = {
+      ...NO_MARKS,
+      edits: { 2: { semitones: 1 }, 6: { semitones: -1 }, [splitHalf(6)]: { removed: true } },
+      added: { 0: { after: 1, offset: 4, length: 2, midi: 60 }, 1: { after: 8, offset: 4, length: 2, midi: 60 } },
+      lyrics: { 5: 'la' },
+    };
+    expect(remapMarks(marks, indexOf)).toEqual({
+      ...NO_MARKS,
+      edits: { 2: { semitones: -1 }, [splitHalf(2)]: { removed: true } },
+      added: { 1: { after: 4, offset: 4, length: 2, midi: 60 } },
+      lyrics: { 1: 'la' },
+    });
+  });
+
+  it('adds a take to the end of a tune, from the next bar line', () => {
+    const joined = joinTakes(take, take);
+    expect(joined.heard.notes).toHaveLength(60);
+    expect(joined.heard.notes[30].section).toBe(true);
+    expect(joined.analysis!.track.midi.length).toBe(joined.heard.contour.length);
+    expect(joined.analysis!.audio.pcm.length).toBeGreaterThan(1.9 * pcm.length);
+    const once = arrange(take.heard.notes, DEFAULT_SETTINGS).score;
+    const twice = arrange(joined.heard.notes, DEFAULT_SETTINGS).score;
+    expect(twice.measures).toHaveLength(16);
+    const shape = (measures: typeof once.measures) => measures.map((m) => m.items.map((item) => `${item.pitch?.midi ?? 'r'}:${item.units}`));
+    expect(shape(twice.measures.slice(8))).toEqual(shape(once.measures));
+    // and the link says where the second take begins
+    return encodeTune({ title: '', composer: '', notes: joined.heard.notes, settings: DEFAULT_SETTINGS, marks: NO_MARKS })
+      .then(decodeTune)
+      .then((back) => expect(back!.notes.flatMap((n, i) => (n.section ? [i] : []))).toEqual([30]));
+  });
+
+  it('starts an added take on a bar line however long the wait before it', () => {
+    const at = (starts: number[]) => starts.map((start, i) => ({ start, end: start + 0.45, midi: 60 + i, cents: 0, level: 0.1, ...(i === 3 && { section: true as const }) }));
+    for (const wait of [0.2, 0.9, 3.3]) {
+      const placed = quantize(at([0, 0.5, 1, 1.5 + wait, 2 + wait]), 0.125, 2, 0, 4, 'straight', 16);
+      expect(placed.map((n) => n.start)).toEqual([0, 4, 8, 16, 20]);
+    }
+  });
+
+  it('does not take the wait before an added take for rhythm', () => {
+    const line = (from: number) => [60, 62, 64, 60, 60, 62, 64, 60].map((midi, i) => ({ start: from + i * 0.6, end: from + i * 0.6 + 0.5, midi, cents: 0, level: 0.1 }));
+    const second = line(4.8 + 1.37);
+    const notes = [...line(0), { ...second[0], section: true as const }, ...second.slice(1)];
+    const { score, detected } = arrange(notes, DEFAULT_SETTINGS);
+    expect(detected.bpm).toBe(100);
+    expect(score.measures).toHaveLength(4);
+    expect(score.measures.every((m) => m.items.length === 4)).toBe(true);
+  });
+
+  it('plays a passage of bars on its own', () => {
+    const score = arrange(take.heard.notes, DEFAULT_SETTINGS).score;
+    const all = performance(score);
+    const some = performance(passageOf(score, 2, 3));
+    expect(some.length).toBeLessThan(all.length);
+    expect(some[0].startUnits).toBe(0);
+    expect(some[some.length - 1].startUnits + some[some.length - 1].lengthUnits).toBeLessThanOrEqual(32);
+  });
+});
+
+describe('chord suggestions', () => {
+  const pcm = synthesiseDemo(22050);
+  const { notes } = segmentNotes(trackPitch(pcm, 22050));
+
+  it('gives the bars of a tune chords from its key, starting and ending at home', () => {
+    const { score } = arrange(notes, DEFAULT_SETTINGS);
+    const chords = suggestChords(score);
+    const names = Object.values(chords);
+    expect(chords[0]).toBe('D');
+    expect(names.length).toBeGreaterThan(2);
+    for (const name of names) expect(['D', 'Em', 'F#m', 'G', 'A', 'Bm']).toContain(name);
+    expect(names).toContain('A');
+    // a chord already written is left, and not written again over the next bar
+    const marked = arrange(notes, DEFAULT_SETTINGS, { chords: { 0: 'Bm7' } }).score;
+    expect(suggestChords(marked)[0]).toBeUndefined();
+  });
+});
+
 describe('PDF export', () => {
   it('writes a file whose cross-reference table points at its objects', async () => {
     const page = { width: 4, height: 2, pixels: Uint8Array.from([0, 255, 0, 255, 255, 0, 255, 0]) };
@@ -590,6 +733,20 @@ describe('PDF export', () => {
     expect(text.slice(xref, xref + 4)).toBe('xref');
     const offsets = [...text.slice(xref).matchAll(/(\d{10}) 00000 n/g)].map((m) => Number(m[1]));
     expect(offsets).toHaveLength(9); // catalog, page tree, info, and three per page
+    offsets.forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
+  });
+
+  it('writes a drawn page with its fonts beside it', async () => {
+    const font = { id: 'F0', name: 'Test', file: new Uint8Array(64), used: new Map([[5, 0x41], [9, 0x1d11e]]) };
+    const pdf = await buildPdf([{ width: 780, height: 1103, content: '0 0 0 rg BT /F0 12 Tf <0005> Tj ET' }], 'Drawn', undefined, [font]);
+    const text = new TextDecoder('latin1').decode(pdf);
+    expect(text).toContain('/Subtype /CIDFontType2');
+    expect(text).toContain('/FontFile2 7 0 R');
+    expect(text).toContain('/Font << /F0 4 0 R >>');
+    expect(text).not.toContain('/Subtype /Image');
+    const xref = Number(/startxref\n(\d+)/.exec(text)![1]);
+    const offsets = [...text.slice(xref).matchAll(/(\d{10}) 00000 n/g)].map((m) => Number(m[1]));
+    expect(offsets).toHaveLength(10); // catalog, page tree, info, five for the font, page and contents
     offsets.forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
   });
 });

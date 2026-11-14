@@ -9,7 +9,8 @@ of which a score here uses a few dozen. This writes
   academico.woff2       the text face, as shipped
   academico-bold.woff2
 
-so the app can load `vexflow/core` (no fonts inside) and fetch these beside it.
+and, in src/export/fonts, the same three as plain TrueType files for the PDF
+export to embed, so the app can load `vexflow/core` (no fonts inside) and fetch these beside it.
 
 Run after a VexFlow upgrade, or after adding notation that needs glyphs from
 a range not listed here:
@@ -34,7 +35,17 @@ from fontTools.ttLib import TTFont
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'node_modules/vexflow/build/esm/src/fonts'
 OUT = ROOT / 'src/notation/fonts'
+PDF_OUT = ROOT / 'src/export/fonts'
 SUBSET_NAME = 'Scribe Music'
+
+# What of the text face goes into a PDF: Latin with its accents, common
+# punctuation, and the flat, natural and sharp signs of chord symbols.
+PDF_TEXT_RANGES = [
+    (0x0020, 0x007E),
+    (0x00A0, 0x017F),
+    (0x2010, 0x2027),
+    (0x266D, 0x266F),
+]
 
 # SMuFL ranges, generously: everything a single melodic line can call for.
 RANGES = [
@@ -80,7 +91,26 @@ def main() -> None:
     font.flavor = 'woff2'
     font.save(OUT / 'music.woff2')
 
-    for path in sorted(OUT.glob('*.woff2')):
+    # The same three again as plain TrueType, for setting into a PDF (which
+    # cannot hold WOFF2). Only what a PDF viewer reads is kept, and of the text
+    # face only the Latin a title, a lyric or a chord symbol is likely to use.
+    PDF_OUT.mkdir(parents=True, exist_ok=True)
+    for name in ('music', 'academico', 'academico-bold'):
+        font = TTFont(OUT / f'{name}.woff2')
+        options = subset.Options()
+        options.layout_features = []
+        options.name_IDs = [1, 2, 4, 6]
+        options.notdef_outline = True
+        options.glyph_names = False
+        options.hinting = False
+        subsetter = subset.Subsetter(options)
+        ranges = RANGES if name == 'music' else PDF_TEXT_RANGES
+        subsetter.populate(unicodes=[cp for lo, hi in ranges for cp in range(lo, hi + 1)])
+        subsetter.subset(font)
+        font.flavor = None
+        font.save(PDF_OUT / f'{name}.ttf')
+
+    for path in sorted([*OUT.glob('*.woff2'), *PDF_OUT.glob('*.ttf')]):
         print(f'{path.relative_to(ROOT)}  {path.stat().st_size / 1024:.1f} kB')
 
 

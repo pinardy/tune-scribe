@@ -23,7 +23,7 @@ export default defineConfig({
       workbox: {
         // the recorder worklet, the fonts and the piano samples are fetched at
         // runtime, so they must be precached for the app to work offline
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mp3}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,ttf,mp3}'],
       },
       manifest: {
         name: 'Tune Scribe — melody to sheet music',

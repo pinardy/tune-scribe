@@ -1,11 +1,18 @@
-// The score as a PDF: laid out at print width, drawn page by page on a
-// canvas with VexFlow's canvas backend, and handed to the PDF writer as
-// greyscale images. Lives in the notation chunk; load it with import().
+// The score as a PDF: laid out at print width and drawn page by page with
+// VexFlow's canvas backend. The drawing goes to a stand-in canvas that writes
+// PDF paths and text (pdfCanvas.ts), so the page is sharp at any size; if that
+// cannot be done (a title in a script the embedded fonts lack, the fonts not
+// to be had) each page is drawn on a real canvas and goes in as a picture.
+// Lives in the notation chunk; load it with import().
 
-import { Renderer } from 'vexflow/core';
+import { CanvasContext, Renderer } from 'vexflow/core';
 import { SYSTEM_GAP, drawSystems, layoutScore, systemHeight } from '../notation/renderScore';
 import type { Score } from '../transcribe/score';
-import { A4, LETTER, buildPdf, type PageSize, type PdfPage } from './pdf';
+import academicoBoldUrl from './fonts/academico-bold.ttf?url';
+import academicoUrl from './fonts/academico.ttf?url';
+import musicUrl from './fonts/music.ttf?url';
+import { A4, LETTER, buildPdf, type DrawnPage, type PageSize, type PdfPage } from './pdf';
+import { PdfCanvas, readGlyphs, type CanvasFont } from './pdfCanvas';
 
 /** Width the score is set at: the same as the print stylesheet's (PRINT_WIDTH in ScoreView). */
 const SCORE_WIDTH = 660;
@@ -19,6 +26,23 @@ const BLACK = { line: '#000', ink: '#000' };
 /** US Letter where it is the paper in the printer, A4 everywhere else. */
 function localPageSize(): PageSize {
   return /^en-(US|CA)\b/.test(navigator.language) ? LETTER : A4;
+}
+
+/** The fonts the score is drawn in on screen, as files a PDF can hold. */
+async function pdfFonts(): Promise<CanvasFont[]> {
+  const faces = [
+    { url: musicUrl, name: 'ScribeMusic', family: 'Bravura', bold: false },
+    { url: academicoUrl, name: 'Academico', family: 'Academico', bold: false },
+    { url: academicoBoldUrl, name: 'Academico-Bold', family: 'Academico', bold: true },
+  ];
+  return Promise.all(
+    faces.map(async ({ url, ...face }, i) => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Font not found: ${url}`);
+      const file = new Uint8Array(await response.arrayBuffer());
+      return { ...face, id: `F${i}`, file, glyphs: readGlyphs(file), used: new Map<number, number>() };
+    }),
+  );
 }
 
 /**
@@ -50,6 +74,72 @@ export async function scorePdf(score: Score, title: string, subtitle: string, co
   });
   pageRanges.push([from, layout.systems.length]);
 
+  const page = { pageWidth, pageHeight, ranges: pageRanges };
+  try {
+    const fonts = await pdfFonts();
+    const drawn = drawnPages(score, layout, page, title, subtitle, composer, fonts);
+    return await buildPdf(drawn, title, size, fonts.filter((font) => font.used.size > 0));
+  } catch {
+    return buildPdf(picturePages(score, layout, page, title, subtitle, composer), title, size);
+  }
+}
+
+interface Paging {
+  /** size of a page in layout px */
+  pageWidth: number;
+  pageHeight: number;
+  /** the systems on each page: the first, and one past the last */
+  ranges: [number, number][];
+}
+
+type Layout = NonNullable<ReturnType<typeof layoutScore>>;
+
+/** Each page as drawing instructions. Throws if a character has no glyph in `fonts`. */
+function drawnPages(
+  score: Score,
+  layout: Layout,
+  { pageWidth, pageHeight, ranges }: Paging,
+  title: string,
+  subtitle: string,
+  composer: string,
+  fonts: CanvasFont[],
+): DrawnPage[] {
+  return ranges.map(([first, end], index) => {
+    const c = new PdfCanvas(fonts);
+    c.canvas.width = pageWidth;
+    c.canvas.height = pageHeight;
+    /** One line of text; `anchor` 0 puts its left end at x, 0.5 its middle, 1 its right end. */
+    const line = (text: string, size: number, x: number, y: number, anchor: number, maxWidth = Infinity) => {
+      c.font = `${size}px Academico`;
+      const width = c.measureText(text).width;
+      // too long for the page: set smaller
+      if (width > maxWidth) c.font = `${(size * maxWidth) / width}px Academico`;
+      c.fillText(text, x - Math.min(width, maxWidth) * anchor, y);
+    };
+    if (index === 0) {
+      line(title, 30, pageWidth / 2, MARGIN + 30, 0.5, SCORE_WIDTH);
+      line(subtitle, 15, pageWidth / 2, MARGIN + 54, 0.5);
+      if (composer) line(composer, 15, pageWidth - MARGIN, MARGIN + 74, 1, SCORE_WIDTH);
+    }
+    if (ranges.length > 1) line(String(index + 1), 12, pageWidth / 2, pageHeight - MARGIN / 2, 0.5);
+
+    c.save();
+    c.translate(MARGIN, MARGIN + (index === 0 ? HEADING : 0));
+    drawSystems(new CanvasContext(c as unknown as CanvasRenderingContext2D), score, layout, BLACK, first, end);
+    c.restore();
+    return { width: pageWidth, height: pageHeight, content: c.content };
+  });
+}
+
+/** Each page as a greyscale picture of it. */
+function picturePages(
+  score: Score,
+  layout: Layout,
+  { pageWidth, pageHeight, ranges: pageRanges }: Paging,
+  title: string,
+  subtitle: string,
+  composer: string,
+): PdfPage[] {
   const pages: PdfPage[] = [];
   for (const [index, [first, end]] of pageRanges.entries()) {
     const canvas = document.createElement('canvas');
@@ -96,5 +186,5 @@ export async function scorePdf(score: Score, title: string, subtitle: string, co
     canvas.height = 0;
   }
 
-  return buildPdf(pages, title, size);
+  return pages;
 }

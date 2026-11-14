@@ -103,9 +103,30 @@ with a quarter rest ending bars 3 and 4.
   "Done"); `.note-editor-what` reads e.g. "G4 note 3 of 30"; `.sheet-hint`
   counts corrections and holds "Undo all". Keys with a note picked: arrows,
   `+`/`-`, Delete, Escape.
-- Storage: the take is in IndexedDB `tune-scribe` and returns on reload.
-  "Clear this tune and start over" empties it — the write is async, so wait
-  ~300 ms before reloading to check.
+- Storage: tunes are in IndexedDB `tune-scribe` (stores `takes` and
+  `sheets`, keyed by tune id; the open one's id is localStorage
+  `scribe.current`). Sheet writes are debounced 400 ms — wait ~700 ms
+  before reloading to check. "Saved tunes" is a `<details class="library">`
+  (tap its summary); rows are `.library-open` (current one has
+  `aria-current`), delete buttons are labelled "Delete <title>" and raise a
+  `confirm()`. "Put this tune away and start a new one" clears the desk and
+  resets the settings; the tune stays saved.
+- Link: the button labelled "Copy a link to this tune" writes
+  `…/#tune=z.<payload>` to the clipboard (grant `clipboard-read` /
+  `clipboard-write`). Opening it shows the score with no "Play recording"
+  button, clears the hash and adds the tune to the library.
+- More note tools: chips "Split in two", "Join to next", "Length moves
+  later notes" (off: Longer/Shorter move only that note's end). A split
+  note's second half is `data-event="<1000000 + index>"`. Fields labelled
+  "Chord" and "Lyric"; typing a space in Lyric steps to the next note.
+  "Undo" / "Redo" buttons sit in `.sheet-foot`; Ctrl+Z / Ctrl+Shift+Z work.
+- Feel: group "Feel" (Straight / Swing / Triplets). Triplets draw
+  `.vf-tuplet`; swing puts "Swing" in the tempo mark. To hear either from
+  the fake microphone, give `__play` per-note lengths (thirds of a beat).
+- Time suggestion: `[data-testid=meter-suggestion]` with a "Use it" button;
+  a waltz with a pickup played in 4/4 gives "3/4, starting on beat 3".
+- Playback options: `.playback-options` — range input labelled "Score
+  speed", chips "Loop" and "Click"; stored in `scribe.playback`.
 - Click: `getByRole('switch')` ("Record to a click"), tempo input labelled
   "Click tempo, beats per minute". Recording then shows
   `[data-testid=count-in]` for one bar; start `__play` when it disappears.

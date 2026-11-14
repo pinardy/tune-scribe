@@ -16,20 +16,30 @@ writes it out as sheet music.
 - **Read** — the tune appears as engraved notation (VexFlow): clef, key
   signature, time signature, metronome mark, real note values, rests, beams
   and ties, wrapped to the width of the screen.
-- **Check** — play the score back with the sounding note highlighted, or play
-  the original recording against it. "What was heard" shows the raw pitch
+- **Check** — play the score back in a synthesised piano voice with the
+  sounding note highlighted (at 50–125% speed, looped, with a click if
+  wanted), or play the original recording against it. "What was heard" shows the raw pitch
   trace with the notes it was cut into.
 - **Correct** — tempo (with ÷2 / ×2 for the classic half-time/double-time
-  miss), time signature, the beat the tune starts on, shortest note value,
-  key, transposition (semitones, or B♭ / E♭ / F instruments) and clef.
-  Changes re-notate instantly; settings persist. Tap a note to fix it alone:
-  pitch up or down, longer or shorter (later notes move with it), or remove
-  it. With a note picked, the arrow keys, + / − and Delete do the same.
-- **Keep** — the current tune (audio, title and corrections) is stored in
-  IndexedDB and comes back after a reload, until it is cleared or replaced.
+  miss), time signature (a likelier one, and the beat the tune starts on,
+  are suggested when the notes point to them), shortest note value, feel
+  (straight, swing, or triplets), key, transposition (semitones, or B♭ / E♭
+  / F instruments) and clef. Changes re-notate instantly.
+- **Edit** — tap a note to fix it alone: pitch up or down, longer or shorter
+  (into the rest or note that follows, or pushing the later notes along),
+  split in two, join to the next, or remove. Add a chord symbol above it or
+  a lyric below it; in the lyric field, space or a hyphen moves to the next
+  note. Everything done by hand can be undone and redone (Ctrl/Cmd+Z). With
+  a note picked, the arrow keys, + / − and Delete work too.
+- **Keep** — every tune is saved in IndexedDB with its audio, title, marks
+  and settings. "Saved tunes" lists them; the one that was open comes back
+  after a reload.
 - **Take it away** — PDF, MusicXML (MuseScore, Dorico, Sibelius, Finale…),
   MIDI, or print; where the browser can share files, the PDF goes to the
   share sheet. Print and PDF set the score at page width in black on white.
+  "Link" copies a URL that holds the notes, settings and marks (not the
+  audio) in its fragment and opens the score in Tune Scribe; nothing is
+  uploaded.
 
 Everything runs in the browser. No audio leaves the device, and once
 installed the app works offline.
@@ -41,10 +51,11 @@ single line on the piano. Pitch detection is monophonic, so chords and
 full-band mixes will not transcribe correctly — that needs a polyphonic
 model (see "Where to take it next").
 
-Also not handled yet: triplets and swing (the grid is eighths/sixteenths),
-automatic time-signature detection (pick it in the settings), and moving a
-note in time without changing a length (note edits are pitch, length and
-removal).
+Also not handled yet: tuplets other than eighth-note triplets in
+quarter-note time, sixteenths alongside triplets (with triplets on, the
+grid is eighths and triplet eighths), applying a detected time signature by
+itself (it is offered, not assumed), and adding a note where nothing was
+heard (split an existing note instead).
 
 ## How it works
 
@@ -69,9 +80,13 @@ audio file ──┘      (1)          (2)           (3)        (4)          (5)
    spelling for the key, and splitting into bars and readable note values.
 6. `notation/renderScore.ts` — measures, beams, ties and systems in VexFlow.
 
-Around the pipeline: `transcribe/edits.ts` applies hand corrections after
-the rhythm grid (step 4), so they survive a change of settings;
-`storage/takeStore.ts` keeps the take in IndexedDB; `audio/metronome.ts` and
+Around the pipeline: `transcribe/feel.ts` holds the swing time map and the
+thirds-of-a-unit arithmetic triplets need (positions are whole sixteenths or
+thirds of one); `transcribe/meter.ts` scores time signatures by where the
+long notes fall; `transcribe/edits.ts` and `marks.ts` apply hand corrections,
+chords and lyrics after the rhythm grid (step 4), so they survive a change
+of settings; `storage/library.ts` keeps the tunes in IndexedDB;
+`share/link.ts` packs a tune into a URL fragment; `audio/metronome.ts` and
 `audio/levelWatch.ts` are the click and the input-level advice;
 `export/pdf.ts` + `export/scorePdf.ts` draw the score on a canvas page by
 page and write it as a PDF of greyscale images (no PDF library).

@@ -7,23 +7,32 @@ interface Props {
   /** how many notes carry a correction */
   editCount: number;
   onUndoAll: () => void;
+  onSuggestChords: () => void;
   history: Pick<History<unknown>, 'undo' | 'redo' | 'canUndo' | 'canRedo'>;
 }
 
-export default function SheetFoot({ editCount, onUndoAll, history }: Props) {
+export default function SheetFoot({ editCount, onUndoAll, onSuggestChords, history }: Props) {
   return (
     <div className="sheet-foot">
       <p className="sheet-hint">
         {editCount > 0 ? (
           <>
-            {editCount} {editCount === 1 ? 'note' : 'notes'} corrected by hand.{' '}
+            {editCount} {editCount === 1 ? 'note' : 'notes'} corrected or added by hand.{' '}
             <button type="button" className="link" onClick={onUndoAll}>
               Undo all
             </button>
           </>
         ) : (
-          'Tap a note to correct it.'
-        )}
+          'Tap a note to correct it, or a rest to put a note there.'
+        )}{' '}
+        <button
+          type="button"
+          className="link"
+          onClick={onSuggestChords}
+          title="Writes a likely chord over each bar that has none, from the melody and the key"
+        >
+          Suggest chords
+        </button>
       </p>
       {(history.canUndo || history.canRedo) && (
         <div className="sheet-history">

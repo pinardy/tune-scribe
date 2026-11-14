@@ -18,6 +18,15 @@ export interface Working {
   progress: number | null;
 }
 
+export interface CaptureTarget {
+  /** new audio is added to the end of the tune on the desk, rather than starting a new one */
+  adding: boolean;
+  onAdding: (adding: boolean) => void;
+  /** set when new audio is to replace the tune from this bar on */
+  fromBar: number | null;
+  onCancelFrom: () => void;
+}
+
 interface Props {
   recorder: RecorderState;
   working: Working | null;
@@ -26,11 +35,13 @@ interface Props {
   onClick: (click: ClickSettings) => void;
   error: string | null;
   notice: string | null;
+  /** where the next recording or file goes, while there is a tune on the desk it could go into */
+  target: CaptureTarget | null;
   /** what follows in the same section: the way back to a blank sheet, the saved tunes */
   children?: ReactNode;
 }
 
-export default function Capture({ recorder, working, onFile, click, onClick, error, notice, children }: Props) {
+export default function Capture({ recorder, working, onFile, click, onClick, error, notice, target, children }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
   const { recording, countIn, elapsed, hearing, advice } = recorder;
   const busy = recording || working !== null;
@@ -91,7 +102,9 @@ export default function Capture({ recorder, working, onFile, click, onClick, err
             </>
           ) : (
             <>
-              <span className="capture-main">Record a melody</span>
+              <span className="capture-main">
+                {target?.fromBar ? `Record bar ${target.fromBar} onward` : target?.adding ? 'Record the next part' : 'Record a melody'}
+              </span>
               <span className="capture-sub">
                 {recordingSupported()
                   ? 'Hum, whistle, sing or play one note at a time.'
@@ -101,6 +114,25 @@ export default function Capture({ recorder, working, onFile, click, onClick, err
           )}
         </div>
       </div>
+
+      {target &&
+        (target.fromBar ? (
+          <p className="message" data-testid="record-from">
+            The next recording or file replaces this tune from bar {target.fromBar} to the end.{' '}
+            <button type="button" className="link" onClick={target.onCancelFrom} disabled={busy}>
+              Cancel
+            </button>
+          </p>
+        ) : (
+          <div className="segmented capture-target" role="group" aria-label="What a new recording does">
+            <button type="button" aria-pressed={!target.adding} onClick={() => target.onAdding(false)} disabled={busy}>
+              Start a new tune
+            </button>
+            <button type="button" aria-pressed={target.adding} onClick={() => target.onAdding(true)} disabled={busy}>
+              Add to this tune
+            </button>
+          </div>
+        ))}
 
       <button type="button" className="button" onClick={() => fileInput.current?.click()} disabled={busy}>
         <Icon name="open" />

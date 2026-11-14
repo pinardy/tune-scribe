@@ -6,7 +6,7 @@ import { fetchPiano } from '../audio/piano';
 import { playRecording, playScore, type Playback } from '../audio/playback';
 import { usePersistentState } from '../hooks/usePersistentState';
 import type { StoredTake } from '../storage/library';
-import type { Score } from '../transcribe/score';
+import { passageOf, type Score } from '../transcribe/score';
 
 export interface PlaybackPrefs {
   /** 1 = at the written tempo */
@@ -34,6 +34,9 @@ export interface PlaybackState {
   activeEvent: number | null;
   prefs: PlaybackPrefs;
   setPrefs: (prefs: PlaybackPrefs) => void;
+  /** the bars the score is played over while it loops, counted from 1, both included */
+  passage: [number, number];
+  setPassage: (passage: [number, number]) => void;
   /** Starts the score or the recording, or stops it if that is what is playing. */
   toggle: (what: 'score' | 'recording') => Promise<void>;
   stop: () => void;
@@ -45,18 +48,27 @@ export function usePlayback(take: StoredTake | null, score: Score | undefined): 
   const [activeEvent, setActiveEvent] = useState<number | null>(null);
   const [prefs, setPrefs] = usePersistentState('scribe.playback', DEFAULT_PREFS, sanitizePrefs);
 
+  /** the passage as it was set; null until it is, which means the whole tune */
+  const [wanted, setPassage] = useState<[number, number] | null>(null);
+  useEffect(() => setPassage(null), [take]);
+  const bars = score?.measures.length ?? 1;
+  const from = Math.min(bars, Math.max(1, wanted?.[0] ?? 1));
+  const to = Math.min(bars, Math.max(from, wanted?.[1] ?? bars));
+
   const stop = useCallback(() => {
     current.current?.stop();
     current.current = null;
   }, []);
 
   // read when a loop comes round again, by which time these may have changed
-  const latest = useRef({ loop: prefs.loop, score });
-  latest.current = { loop: prefs.loop, score };
+  const latest = useRef({ loop: prefs.loop, score, from, to });
+  latest.current = { loop: prefs.loop, score, from, to };
 
   const startScore = async () => {
-    const toPlay = latest.current.score;
-    if (!toPlay) return;
+    const { score: whole, loop } = latest.current;
+    if (!whole) return;
+    // looping is for practising: it goes round the chosen bars, not always the whole tune
+    const toPlay = loop ? passageOf(whole, latest.current.from - 1, latest.current.to - 1) : whole;
     setPlaying('score');
     const started = await playScore(
       toPlay,
@@ -78,15 +90,21 @@ export function usePlayback(take: StoredTake | null, score: Score | undefined): 
     if (what === 'score') return startScore();
     if (!take.analysis) return;
     setPlaying(what);
-    current.current = await playRecording(take.analysis.audio, take.heard.notes, setActiveEvent, () => {
-      current.current = null;
-      setPlaying(null);
-    });
+    current.current = await playRecording(
+      take.analysis.audio,
+      take.heard.notes,
+      setActiveEvent,
+      () => {
+        current.current = null;
+        setPlaying(null);
+      },
+      prefs.speed,
+    );
   };
 
   // a change to the notation mid-playback would leave sound and score out of step,
   // and so would a change of speed, or the click coming or going
-  useEffect(() => stop, [take, score, prefs.speed, prefs.click, stop]);
+  useEffect(() => stop, [take, score, prefs.speed, prefs.click, prefs.loop, from, to, stop]);
 
   // have the piano on hand by the time play is pressed
   const hasScore = !!score;
@@ -94,5 +112,5 @@ export function usePlayback(take: StoredTake | null, score: Score | undefined): 
     if (hasScore) void fetchPiano().catch(() => {});
   }, [hasScore]);
 
-  return { playing, activeEvent, prefs, setPrefs, toggle, stop };
+  return { playing, activeEvent, prefs, setPrefs, passage: [from, to], setPassage, toggle, stop };
 }

@@ -30,6 +30,8 @@ interface Props {
   live: MutableRefObject<LiveTrace> | null;
   take: HeardTake | null;
   activeEvent: number | null;
+  /** while the take is being trimmed: the seconds that would be kept; the rest is greyed out */
+  keep?: [number, number] | null;
 }
 
 const HEIGHT = 136;
@@ -109,7 +111,7 @@ function drawGrid(c: CanvasRenderingContext2D, colors: Palette, width: number, l
   c.globalAlpha = 1;
 }
 
-export default function PitchRoll({ live, take, activeEvent }: Props) {
+export default function PitchRoll({ live, take, activeEvent, keep = null }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [viewWidth, setViewWidth] = useState(0);
@@ -227,7 +229,15 @@ export default function PitchRoll({ live, take, activeEvent }: Props) {
       pen = true;
     }
     c.stroke();
-  }, [live, take, activeEvent, cssWidth, theme]);
+
+    if (keep) {
+      c.fillStyle = colors.label;
+      c.globalAlpha = 0.35;
+      c.fillRect(GUTTER, 0, Math.max(0, x(keep[0]) - GUTTER), HEIGHT);
+      c.fillRect(x(keep[1]), 0, Math.max(0, cssWidth - x(keep[1])), HEIGHT);
+      c.globalAlpha = 1;
+    }
+  }, [live, take, activeEvent, cssWidth, theme, keep]);
 
   // keep the sounding note in view on long takes
   useEffect(() => {

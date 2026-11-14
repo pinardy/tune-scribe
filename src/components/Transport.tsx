@@ -5,7 +5,7 @@
 import type { Exports } from '../app/useExports';
 import { MAX_SPEED, MIN_SPEED, type PlaybackState } from '../app/usePlayback';
 import Icon from './Icon';
-import NoteEditor, { type NoteEditorProps } from './NoteEditor';
+import NoteEditor, { RestEditor, type NoteEditorProps, type RestEditorProps } from './NoteEditor';
 
 interface Props {
   playback: PlaybackState;
@@ -13,15 +13,36 @@ interface Props {
   hasRecording: boolean;
   /** the picked note's tools; null when no note is picked */
   editor: NoteEditorProps | null;
+  /** the picked rest's; null when no rest is picked */
+  rest: RestEditorProps | null;
+  /** how many bars the score has */
+  bars: number;
   exports: Exports;
 }
 
-export default function Transport({ playback, hasRecording, editor, exports }: Props) {
-  const { playing, prefs, setPrefs, toggle } = playback;
+export default function Transport({ playback, hasRecording, editor, rest, bars, exports }: Props) {
+  const { playing, prefs, setPrefs, toggle, passage, setPassage } = playback;
+  const bar = (which: 0 | 1, label: string) => (
+    <input
+      type="number"
+      inputMode="numeric"
+      aria-label={label}
+      min={which === 0 ? 1 : passage[0]}
+      max={which === 0 ? passage[1] : bars}
+      value={passage[which]}
+      onChange={(e) => {
+        const value = Math.round(Number(e.target.value));
+        if (!Number.isFinite(value) || value < 1) return;
+        setPassage(which === 0 ? [Math.min(value, passage[1]), passage[1]] : [passage[0], Math.max(value, passage[0])]);
+      }}
+    />
+  );
   return (
     <div className="transport">
       {editor ? (
         <NoteEditor {...editor} />
+      ) : rest ? (
+        <RestEditor {...rest} />
       ) : (
         <>
           <div className="transport-group transport-play">
@@ -47,10 +68,10 @@ export default function Transport({ playback, hasRecording, editor, exports }: P
             )}
           </div>
           <div className="playback-options">
-            <label className="speed" title="How fast the score is played; the recording plays as it was">
+            <label className="speed" title="How fast the score and the recording are played; the pitch stays the same">
               <span>Speed</span>
               <input
-                aria-label="Score speed"
+                aria-label="Playback speed"
                 type="range"
                 min={MIN_SPEED * 100}
                 max={MAX_SPEED * 100}
@@ -68,6 +89,11 @@ export default function Transport({ playback, hasRecording, editor, exports }: P
             >
               Loop
             </button>
+            {prefs.loop && bars > 1 && (
+              <span className="passage">
+                bars {bar(0, 'Loop from bar')} to {bar(1, 'Loop to bar')}
+              </span>
+            )}
             <button
               type="button"
               className="chip"

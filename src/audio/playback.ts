@@ -108,8 +108,8 @@ export async function playTone(midi: number): Promise<void> {
  * once when playback finishes (with true) or is stopped (with false).
  */
 function follow(
-  audio: AudioContext,
-  startTime: number,
+  /** seconds into what is playing */
+  now: () => number,
   spans: { index: number; from: number; to: number }[],
   total: number,
   onNote: (eventIndex: number | null) => void,
@@ -128,7 +128,7 @@ function follow(
     onEnd(finished);
   };
   const tick = () => {
-    const t = audio.currentTime - startTime;
+    const t = now();
     if (t >= total) return finish(true);
     const span = spans.find((s) => t >= s.from && t < s.to);
     const index = span ? span.index : null;
@@ -183,7 +183,7 @@ export async function playScore(
     }
   }
 
-  return follow(audio, startTime, spans, total, onNote, onEnd, () => {
+  return follow(() => audio.currentTime - startTime, spans, total, onNote, onEnd, () => {
     for (const osc of oscillators) {
       try {
         osc.stop();
@@ -195,13 +195,79 @@ export async function playScore(
   });
 }
 
-/** Plays the analysed recording, reporting which detected note is sounding. */
+/** The recording as a WAV file, for the browser's own player. */
+function wavOf(recording: Recording): Blob {
+  const { pcm, sampleRate } = recording;
+  const view = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const text = (at: number, value: string) => {
+    for (let i = 0; i < value.length; i++) view.setUint8(at + i, value.charCodeAt(i));
+  };
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + pcm.length * 2, true);
+  text(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, 'data');
+  view.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) {
+    view.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, pcm[i])) * 0x7fff), true);
+  }
+  return new Blob([view], { type: 'audio/wav' });
+}
+
+/**
+ * Plays the recording slower or faster at the pitch it was made at. The
+ * browser's media player can stretch time that way; a buffer played through
+ * the audio context cannot, it only goes down in pitch as it slows.
+ */
+async function playStretched(
+  recording: Recording,
+  spans: { index: number; from: number; to: number }[],
+  speed: number,
+  onNote: (eventIndex: number | null) => void,
+  onEnd: (finished: boolean) => void,
+): Promise<Playback> {
+  const url = URL.createObjectURL(wavOf(recording));
+  const player = new Audio(url);
+  player.preservesPitch = true;
+  player.playbackRate = speed;
+  const total = recording.pcm.length / recording.sampleRate;
+  // the player may stop a moment short of the length worked out here: `ended` is what says it is over
+  let over = false;
+  player.onended = () => (over = true);
+  const playback = follow(() => (over ? Infinity : player.currentTime), spans, total, onNote, onEnd, () => {
+    player.pause();
+    player.onended = null;
+    URL.revokeObjectURL(url);
+  });
+  try {
+    await player.play();
+  } catch {
+    playback.stop();
+  }
+  return playback;
+}
+
+/**
+ * Plays the analysed recording, reporting which detected note is sounding.
+ *
+ * @param speed  1 = as it was recorded; anything else keeps the pitch and changes the pace
+ */
 export async function playRecording(
   recording: Recording,
   notes: NoteEvent[],
   onNote: (eventIndex: number | null) => void,
   onEnd: (finished: boolean) => void,
+  speed = 1,
 ): Promise<Playback> {
+  const spans = notes.map((n, index) => ({ index, from: n.start, to: n.end }));
+  if (speed !== 1) return playStretched(recording, spans, speed, onNote, onEnd);
+
   const audio = await audioContext();
   const buffer = audio.createBuffer(1, recording.pcm.length, recording.sampleRate);
   buffer.getChannelData(0).set(recording.pcm);
@@ -211,8 +277,7 @@ export async function playRecording(
   const startTime = audio.currentTime + 0.08;
   source.start(startTime);
 
-  const spans = notes.map((n, index) => ({ index, from: n.start, to: n.end }));
-  return follow(audio, startTime, spans, buffer.duration, onNote, onEnd, () => {
+  return follow(() => audio.currentTime - startTime, spans, buffer.duration, onNote, onEnd, () => {
     try {
       source.stop();
     } catch {

@@ -13,10 +13,10 @@ interface Props {
   score: Score;
   /** index of the played note to highlight, during playback */
   activeEvent: number | null;
-  /** index of the played note picked for editing */
-  selected: number | null;
-  /** a note was tapped (its index), or the score beside the notes (null) */
-  onSelect: (eventIndex: number | null) => void;
+  /** what is picked for editing: played notes by index, or a rest by its id */
+  selected: number[];
+  /** a note or rest was tapped (its index or id; with shift held, `extend`), or the score beside them (null) */
+  onSelect: (id: number | null, extend: boolean) => void;
 }
 
 /** Width the score is re-set at for paper: fits the printable width of A4 and Letter at 96 px/inch. Matches .sheet in the print stylesheet. */
@@ -83,7 +83,7 @@ export default function ScoreView({ score, activeEvent, selected, onSelect }: Pr
   }, [activeEvent, score, renderWidth, theme, fontsReady, printing]);
 
   useLayoutEffect(() => {
-    handleRef.current?.setSelected(printing ? null : selected);
+    handleRef.current?.setSelected(printing ? [] : selected);
   }, [selected, score, renderWidth, theme, fontsReady, printing]);
 
   return (
@@ -94,7 +94,7 @@ export default function ScoreView({ score, activeEvent, selected, onSelect }: Pr
         data-testid="score"
         onClick={(e) => {
           const note = (e.target as Element).closest('[data-event]');
-          onSelect(note ? Number(note.getAttribute('data-event')) : null);
+          onSelect(note ? Number(note.getAttribute('data-event')) : null, e.shiftKey);
         }}
       />
     </div>

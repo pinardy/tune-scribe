@@ -1399,3 +1399,101 @@ progress::-moz-progress-bar {
     stroke: #000;
   }
 }
+
+/* ---- where a new recording goes, trimming a take, looping a passage ---- */
+
+.capture-target {
+  align-self: stretch;
+}
+
+.capture-target button {
+  flex: 1;
+}
+
+.trim-open {
+  align-self: flex-start;
+  font-size: 0.8125rem;
+}
+
+.trim {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trim label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.trim label span {
+  width: 2.6em;
+}
+
+.trim input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+.trim output {
+  width: 3.6em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.trim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.passage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.passage input {
+  width: 3.4em;
+  height: 32px;
+  padding: 0 4px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+}
+
+@media (pointer: coarse) {
+  .passage input {
+    height: 40px;
+  }
+}
+
+@media (max-width: 939px) {
+  /* the speed on a line of its own, the chips and the bars to loop under it */
+  .playback-options {
+    flex-wrap: wrap;
+  }
+
+  .speed {
+    flex: 1 1 100%;
+  }
+}
+
+@media print {
+  .trim,
+  .trim-open {
+    display: none;
+  }
+}

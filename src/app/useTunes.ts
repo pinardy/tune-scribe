@@ -18,6 +18,7 @@ import {
   type TuneSummary,
 } from '../storage/library';
 import { NO_MARKS, type Marks } from '../transcribe/marks';
+import { takeSeconds } from '../transcribe/splice';
 import { DEFAULT_SETTINGS, type ScribeSettings } from '../transcribe/settings';
 import { UNTITLED } from './format';
 
@@ -44,6 +45,8 @@ export interface Tunes {
   restored: MutableRefObject<boolean>;
   /** Puts a new take on the desk and into the library. */
   keep: (take: StoredTake, title: string) => Promise<void>;
+  /** Puts a changed take (trimmed, or added to) in place of the one on the desk, with the marks that still apply. */
+  revise: (take: StoredTake, marks: Marks) => Promise<void>;
   open: (id: string) => Promise<void>;
   remove: (tune: TuneSummary) => Promise<void>;
   /** Clears the desk. The tune that was on it stays in the library. */
@@ -140,6 +143,14 @@ export function useTunes({ settings, setSettings, marks, onError }: Options): Tu
     refresh();
   };
 
+  const revise = async (next: StoredTake, nextMarks: Marks) => {
+    setTake(next);
+    // the notes have been renumbered: steps back to the old numbering would land on the wrong notes
+    resetMarks(nextMarks);
+    if (tuneId) await saveTune(tuneId, next, { title, composer, marks: nextMarks, settings });
+    refresh();
+  };
+
   const putAway = () => {
     setTake(null);
     setTuneId(null);
@@ -168,8 +179,7 @@ export function useTunes({ settings, setSettings, marks, onError }: Options): Tu
     refresh();
   };
 
-  const notes = take?.heard.notes ?? [];
-  const seconds = take ? (take.analysis?.track.duration ?? (notes.length ? notes[notes.length - 1].end : 0)) : 0;
+  const seconds = take ? takeSeconds(take) : 0;
 
-  return { take, tuneId, library, title, setTitle, composer, setComposer, seconds, restored, keep, open, remove, putAway };
+  return { take, tuneId, library, title, setTitle, composer, setComposer, seconds, restored, keep, revise, open, remove, putAway };
 }

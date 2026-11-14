@@ -25,6 +25,7 @@ import {
 } from 'vexflow/core';
 import './fonts';
 import type { Measure, Score } from '../transcribe/score';
+import { restId } from '../transcribe/score';
 import { chordLabel } from '../transcribe/marks';
 import { letterIndex, vexKey, vexKeySignature } from './theory';
 
@@ -51,8 +52,8 @@ export function staffInkFrom(el: Element): StaffInk {
 export interface ScoreHandle {
   /** Highlights the noteheads of one played note; null clears the highlight. */
   setActive(eventIndex: number | null, scrollIntoView?: boolean): void;
-  /** Marks one played note as picked for editing; null clears the mark. */
-  setSelected(eventIndex: number | null): void;
+  /** Marks what is picked for editing: played notes by index, or a rest by its id. */
+  setSelected(ids: number[]): void;
 }
 
 const NO_SCORE: ScoreHandle = { setActive: () => {}, setSelected: () => {} };
@@ -213,8 +214,8 @@ interface Placed {
 
 /**
  * Draws systems `from` up to (not including) `to`, the first of them at the
- * top of the context. Returns where each played note's noteheads ended up
- * (SVG contexts only).
+ * top of the context. Returns where each played note's noteheads ended up,
+ * and each rest under its restId (SVG contexts only).
  */
 export function drawSystems(
   ctx: RenderContext,
@@ -365,9 +366,17 @@ export function drawSystems(
         tuplet.setContext(ctx).drawWithStyle();
       }
 
+      let at = measureIndex * meter.barUnits;
       items.forEach((item, i) => {
-        if (item.kind !== 'note') return;
         const note = staveNotes[i];
+        const start = at;
+        at += item.units;
+        if (item.kind !== 'note') {
+          const group = note.getSVGElement();
+          const box = note.getBoundingBox();
+          if (group) placed.set(restId(start), [{ el: group, x: box.x, w: box.w, top: stave.getYForLine(0) }]);
+          return;
+        }
         if (openTie) {
           if (openTie.note && openTie.system === s) {
             ties.push(new StaveTie({ firstNote: openTie.note, lastNote: note, firstIndexes: [0], lastIndexes: [0] }));
@@ -410,7 +419,7 @@ export function renderScore(el: HTMLDivElement, score: Score, width: number, ink
   renderer.resize(layout.width, layout.height);
   const placed = drawSystems(renderer.getContext(), score, layout, ink);
 
-  // each note can be picked for editing: tag its noteheads, and give them a
+  // each note and rest can be picked for editing: tag it, and give it a
   // target a finger can hit (the root svg ignores the pointer; these opt back in)
   for (const [eventIndex, pieces] of placed) {
     for (const p of pieces) {
@@ -437,13 +446,12 @@ export function renderScore(el: HTMLDivElement, score: Score, width: number, ink
   svg?.insertBefore(cursor, svg.firstChild);
 
   let active: number | null = null;
-  let selected: number | null = null;
+  let selected: number[] = [];
   return {
-    setSelected(eventIndex) {
-      if (eventIndex === selected) return;
-      if (selected !== null) for (const p of placed.get(selected) ?? []) p.el.classList.remove('is-selected');
-      selected = eventIndex;
-      if (eventIndex !== null) for (const p of placed.get(eventIndex) ?? []) p.el.classList.add('is-selected');
+    setSelected(ids) {
+      for (const id of selected) for (const p of placed.get(id) ?? []) p.el.classList.remove('is-selected');
+      selected = ids;
+      for (const id of ids) for (const p of placed.get(id) ?? []) p.el.classList.add('is-selected');
     },
     setActive(eventIndex, scrollIntoView = true) {
       if (eventIndex === active) return;

@@ -9,7 +9,9 @@ export interface NoteEditorProps {
   name: string;
   /** its place in the tune, e.g. "note 5 of 30" */
   position: string;
-  /** whether this note has been changed by hand */
+  /** more than one note is picked: the tools that work on a single note are out of use */
+  several: boolean;
+  /** whether what is picked has been changed by hand */
   edited: boolean;
   canShorten: boolean;
   /** whether a length change pushes the later notes along */
@@ -20,6 +22,13 @@ export interface NoteEditorProps {
   onSplit: () => void;
   canJoin: boolean;
   onJoin: () => void;
+  /** whether the note has another name (F♯ for G♭), and whether it is written under it */
+  canRespell: boolean;
+  respelled: boolean;
+  onRespell: () => void;
+  /** the next note tapped is picked together with this one and all between */
+  extending: boolean;
+  onExtend: () => void;
   chord: string;
   lyric: string;
   onChord: (text: string) => void;
@@ -28,8 +37,12 @@ export interface NoteEditorProps {
   repeatStart: boolean;
   repeatEnd: boolean;
   onRepeat: (sign: 'start' | 'end') => void;
+  /** the bar the note is in, counted from 1 */
+  bar: number;
+  /** Sets the next recording to replace the tune from this bar on; null where there is nothing to replace. */
+  onRecordFrom: (() => void) | null;
   onStep: (direction: -1 | 1) => void;
-  onPitch: (semitones: -1 | 1) => void;
+  onPitch: (semitones: number) => void;
   onLength: (steps: -1 | 1) => void;
   onRemove: () => void;
   onReset: () => void;
@@ -66,7 +79,7 @@ export default function NoteEditor(p: NoteEditorProps) {
         <div className="tool-group">
           <span>Length</span>
           <Tool icon="minus" label="Shorter" onClick={() => p.onLength(-1)} disabled={!p.canShorten} />
-          <Tool icon="plus" label="Longer" onClick={() => p.onLength(1)} />
+          <Tool icon="plus" label="Longer" onClick={() => p.onLength(1)} disabled={p.several} />
         </div>
         <div className="tool-group is-last">
           {p.edited && (
@@ -74,9 +87,10 @@ export default function NoteEditor(p: NoteEditorProps) {
               Reset
             </button>
           )}
-          <Tool icon="remove" label="Remove this note" onClick={p.onRemove} />
+          <Tool icon="remove" label={p.several ? 'Remove these notes' : 'Remove this note'} onClick={p.onRemove} />
         </div>
       </div>
+      {!p.several && (
       <div className="note-editor-words">
         <label>
           <span>Chord</span>
@@ -116,9 +130,35 @@ export default function NoteEditor(p: NoteEditorProps) {
           />
         </label>
       </div>
+      )}
       <details className="note-editor-more">
-        <summary>More: split, join, repeat signs</summary>
+        <summary>More: octaves, several notes, split, join, repeats</summary>
         <div>
+        <button type="button" className="chip" onClick={() => p.onPitch(12)}>
+          Up an octave
+        </button>
+        <button type="button" className="chip" onClick={() => p.onPitch(-12)}>
+          Down an octave
+        </button>
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={p.extending}
+          onClick={p.onExtend}
+          title="Then tap another note: it and every note between are picked together, to move or remove as one"
+        >
+          {p.extending ? 'Now tap the last note' : 'Pick up to another note'}
+        </button>
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={p.respelled}
+          onClick={p.onRespell}
+          disabled={!p.canRespell}
+          title="Write a sharp as the flat of the note above, or a flat as the sharp of the note below"
+        >
+          Other name (♯ or ♭)
+        </button>
         <button type="button" className="chip" aria-pressed={p.isSplit} onClick={p.onSplit} disabled={!p.canSplit}>
           Split in two
         </button>
@@ -140,8 +180,40 @@ export default function NoteEditor(p: NoteEditorProps) {
         <button type="button" className="chip" aria-pressed={p.repeatEnd} onClick={() => p.onRepeat('end')}>
           Repeat to this bar
         </button>
+        {p.onRecordFrom && (
+          <button type="button" className="chip" onClick={p.onRecordFrom}>
+            Record again from bar {p.bar}
+          </button>
+        )}
         </div>
       </details>
+    </div>
+  );
+}
+
+export interface RestEditorProps {
+  /** the bar the rest is in, counted from 1 */
+  bar: number;
+  onAdd: () => void;
+  onDone: () => void;
+}
+
+/** What can be done with a picked rest: write in the note that was not heard. */
+export function RestEditor({ bar, onAdd, onDone }: RestEditorProps) {
+  return (
+    <div className="note-editor" role="group" aria-label="The picked rest">
+      <div className="note-editor-head">
+        <p className="note-editor-what" aria-live="polite">
+          <strong>Rest</strong> <span>in bar {bar}</span>
+        </p>
+        <button type="button" className="button" onClick={onAdd}>
+          <Icon name="plus" />
+          Add a note here
+        </button>
+        <button type="button" className="button is-primary" onClick={onDone}>
+          Done
+        </button>
+      </div>
     </div>
   );
 }
